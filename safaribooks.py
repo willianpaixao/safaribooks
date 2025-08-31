@@ -194,12 +194,7 @@ class Display:
             )
 
     def done(self, epub_file):
-        self.info("Done: %s\n\n" % epub_file +
-                  "    If you like it, please * this project on GitHub to make it known:\n"
-                  "        https://github.com/lorenzodifuccia/safaribooks\n"
-                  "    e don't forget to renew your Safari Books Online subscription:\n"
-                  "        " + SAFARI_BASE_URL + "\n\n" +
-                  self.SH_BG_RED + "[!]" + self.SH_DEFAULT + " Bye!!")
+        self.info("Done: %s\n\n" % epub_file)
 
     @staticmethod
     def api_error(response):
@@ -1171,9 +1166,10 @@ if __name__ == "__main__":
     )
     arguments.add_argument("--help", action="help", default=argparse.SUPPRESS, help='Show this help message.')
     arguments.add_argument(
-        "bookid", metavar='<BOOK ID>',
-        help="Book digits ID that you want to download. You can find it in the URL (X-es):"
-             " `" + SAFARI_BASE_URL + "/library/view/book-name/XXXXXXXXXXXXX/`"
+        "--book-id", dest="bookid", metavar='<BOOK ID>', nargs='+', required=True,
+        help="Book digits ID(s) that you want to download. You can specify multiple book IDs. "
+             "You can find it in the URL (X-es): "
+             "`" + SAFARI_BASE_URL + "/library/view/book-name/XXXXXXXXXXXXX/`"
     )
 
     args_parsed = arguments.parse_args()
@@ -1208,6 +1204,26 @@ if __name__ == "__main__":
         if args_parsed.no_cookies:
             arguments.error("invalid option: `--no-cookies` is valid only if you use the `--cred` option")
 
-    SafariBooks(args_parsed)
-    # Hint: do you want to download more then one book once, initialized more than one instance of `SafariBooks`...
+    # Set up main logger for processing multiple books
+    logger = logging.getLogger("SafariBooks.Main")
+    logger.setLevel(logging.INFO)
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        formatter = logging.Formatter(fmt="[%(asctime)s] %(message)s", datefmt="%d/%b/%Y %H:%M:%S")
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+
+    # Process each book ID
+    for book_id in args_parsed.bookid:
+        # Create a copy of args_parsed with the current book_id
+        current_args = argparse.Namespace(**vars(args_parsed))
+        current_args.bookid = book_id
+
+        try:
+            SafariBooks(current_args)
+        except Exception as e:
+            logger.error(f"Error processing book {book_id}: {e}")
+            logger.info("Continuing with next book...")
+            continue
+
     sys.exit(0)
