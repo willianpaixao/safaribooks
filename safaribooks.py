@@ -13,7 +13,7 @@ import requests
 import traceback
 from html import escape
 from random import random
-from lxml import html, etree
+from lxml import html
 from multiprocessing import Process, Queue, Value
 from urllib.parse import urljoin, urlparse, parse_qs, quote_plus
 
@@ -176,7 +176,7 @@ class Display:
 
 class SafariBooks:
     LOGIN_URL = ORLY_BASE_URL + "/member/auth/login/"
-    LOGIN_ENTRY_URL = SAFARI_BASE_URL + "/login/unified/?next=/home/"
+    LOGIN_ENTRY_URL = SAFARI_BASE_URL + "/home/"
 
     API_TEMPLATE = SAFARI_BASE_URL + "/api/v1/book/{0}/"
 
@@ -249,12 +249,12 @@ class SafariBooks:
               "</ncx>"
 
     HEADERS = {
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Encoding": "gzip, deflate",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
+        "Connection": "keep-alive",
         "Referer": LOGIN_ENTRY_URL,
         "Upgrade-Insecure-Requests": "1",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/90.0.4430.212 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:142.0) Gecko/20100101 Firefox/142.0",
     }
 
     COOKIE_FLOAT_MAX_AGE_PATTERN = re.compile(r'(max-age=\d*\.\d*)', re.IGNORECASE)
@@ -318,7 +318,7 @@ class SafariBooks:
         self.clean_book_title = "".join(self.escape_dirname(self.book_title).split(",")[:2]) \
                                 + " ({0})".format(self.book_id)
 
-        books_dir = os.path.join(PATH, "Books")
+        books_dir = os.path.join(PATH, self.args.books_dir)
         if not os.path.isdir(books_dir):
             os.mkdir(books_dir)
 
@@ -566,11 +566,7 @@ class SafariBooks:
             root = html.fromstring(response.text, base_url=SAFARI_BASE_URL)
 
         except (html.etree.ParseError, html.etree.ParserError) as parsing_error:
-            self.display.error(parsing_error)
-            self.display.exit(
-                "Crawler: error trying to parse this page: %s (%s)\n    From: %s" %
-                (self.filename, self.chapter_title, url)
-            )
+            self.logger.error(parsing_error)
 
         return root
 
@@ -667,11 +663,7 @@ class SafariBooks:
                     page_css += html.tostring(css, method="xml", encoding='unicode') + "\n"
 
                 except (html.etree.ParseError, html.etree.ParserError) as parsing_error:
-                    self.display.error(parsing_error)
-                    self.display.exit(
-                        "Parser: error trying to parse one CSS found in this page: %s (%s)" %
-                        (self.filename, self.chapter_title)
-                    )
+                    self.logger.error(parsing_error)
 
         # TODO: add all not covered tag for `link_replace` function
         svg_image_tags = root.xpath("//image")
@@ -711,11 +703,7 @@ class SafariBooks:
             xhtml = html.tostring(book_content, method="xml", encoding='unicode')
 
         except (html.etree.ParseError, html.etree.ParserError) as parsing_error:
-            self.display.error(parsing_error)
-            self.display.exit(
-                "Parser: error trying to parse HTML of this page: %s (%s)" %
-                (self.filename, self.chapter_title)
-            )
+            self.logger.error(parsing_error)
 
         return page_css, xhtml
 
@@ -1054,6 +1042,10 @@ if __name__ == "__main__":
         "--log-level", dest="log_level", metavar="<LEVEL>", default="INFO",
         choices=get_valid_log_levels(),
         help="Set the logging level. Valid levels: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO)."
+    )
+    arguments.add_argument(
+        "--books-dir", dest="books_dir", metavar="<DIRECTORY>", default="Books",
+        help="Directory where books will be downloaded (default: Books)."
     )
     arguments.add_argument("--help", action="help", default=argparse.SUPPRESS, help='Show this help message.')
     arguments.add_argument(

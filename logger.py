@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# coding: utf-8
 """
 Logging configuration module for SafariBooks downloader.
 """

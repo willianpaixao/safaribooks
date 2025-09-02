@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  safaribooks:
+    build: .
+    container_name: safaribooks-downloader
+    volumes:
+      # Mount a local directory to persist downloaded books
+      - ./downloads:/app/downloads
+      # Mount cookies.json if it exists (for SSO authentication)
+      - ./cookies.json:/app/cookies.json:ro
+    environment:
+      # Set timezone (optional)
+      - TZ=UTC
+    # Override the default command to prevent immediate exit
+    # Users can run: docker-compose run safaribooks --book-id <BOOK_ID>
+    command: --help
+
+# Alternative service for interactive use
+  safaribooks-interactive:
+    build: .
+    container_name: safaribooks-interactive
+    volumes:
+      - ./downloads:/app/downloads
+      - ./cookies.json:/app/cookies.json:ro
+    environment:
+      - TZ=UTC
+    # Keep container running for interactive use
+    stdin_open: true
+    tty: true
+    entrypoint: /bin/bash
