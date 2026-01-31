@@ -1,46 +1,129 @@
 # SafariBooks
-Download and generate *EPUB* of your favorite books from [*Safari Books Online*](https://www.safaribooksonline.com) library.
-I'm not responsible for the use of this program, this is only for *personal* and *educational* purpose.
-Before any usage please read the *O'Reilly*'s [Terms of Service](https://learning.oreilly.com/terms/).
+
+Download and generate *EPUB* files from [O'Reilly Learning Platform](https://learning.oreilly.com) (formerly Safari Books Online).
+
+**⚠️ Disclaimer**: This tool is for *personal* and *educational* purposes only. Please read [O'Reilly's Terms of Service](https://learning.oreilly.com/terms/) before use.
 
 <a href='https://ko-fi.com/Y8Y0MPEGU' target='_blank'><img height='80' style='border:0px;height:60px;' src='https://storage.ko-fi.com/cdn/kofi6.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com'/></a>
 
-## ✨✨ *Attention needed* ✨✨
-- This project is no longer actively maintained.
-- *Login through `safaribooks` no longer works due to changes in ORLY APIs.*
-- *The program needs a major refactor to include new features and integrate new APIs.*
-- **However... it still work for downloading books.**
-(Use SSO hack: log in via browser, then copy cookies into `cookies.json`, see below and issues. Love ❤️)
+## ⚠️ Important Notes
+
+- **Login via `--cred` no longer works** due to O'Reilly API changes
+- **Manual cookie extraction required** (see [Cookie Setup](#cookie-setup) below)
+- **Still fully functional** for downloading books with valid cookies
 
 ---
 
-## Overview:
+## Table of Contents
+
+  * [Quick Start](#quick-start)
   * [Requirements & Setup](#requirements--setup)
+  * [Cookie Setup](#cookie-setup)
   * [Usage](#usage)
-  * [Single Sign-On (SSO), Company, University Login](https://github.com/lorenzodifuccia/safaribooks/issues/150#issuecomment-555423085)
-  * [Calibre EPUB conversion](https://github.com/lorenzodifuccia/safaribooks#calibre-epub-conversion)
+  * [Development Setup](#development-setup-for-contributors)
+  * [Testing](#testing)
+  * [Single Sign-On (SSO), Company, University Login](https://github.com/willianpaixao/safaribooks/issues/150#issuecomment-555423085)
+  * [Calibre EPUB conversion](#calibre-epub-conversion)
   * [Example: Download *Test-Driven Development with Python, 2nd Edition*](#download-test-driven-development-with-python-2nd-edition)
   * [Example: Use or not the `--kindle` option](#use-or-not-the---kindle-option)
+  * [Documentation](#documentation)
 
-## Requirements & Setup:
-First of all, it requires `python3` and `pip3` or `pipenv` to be installed.
-```shell
-$ git clone https://github.com/lorenzodifuccia/safaribooks.git
-Cloning into 'safaribooks'...
+---
 
-$ cd safaribooks/
-$ pip3 install -r requirements.txt
+## Quick Start
 
-OR
+```bash
+# 1. Clone and install
+git clone https://github.com/willianpaixao/safaribooks.git
+cd safaribooks
+pip install -e .
 
-$ pipenv install && pipenv shell
+# 2. Extract cookies from your browser (see Cookie Setup below)
+# Save them to cookies.json
+
+# 3. Download a book
+python3 safaribooks.py <BOOK_ID>
+
+# Example:
+python3 safaribooks.py 9781491958698
 ```
 
-The program depends of only two **Python _3_** modules:
-```python3
-lxml>=4.1.1
-requests>=2.20.0
+---
+
+## Requirements & Setup
+
+### System Requirements
+
+- **Python**: 3.11 or higher
+- **pip**: Latest version recommended
+- **Operating Systems**: Linux, macOS, Windows
+
+### Installation Options
+
+#### Option 1: Recommended
+
+```bash
+# Clone repository
+git clone https://github.com/willianpaixao/safaribooks.git
+cd safaribooks
+
+# Install with pip
+pip install -e .
+
+# Or install with development tools
+pip install -e ".[development]"
 ```
+
+#### Option 2: Virtual Environment (Best Practice)
+
+```bash
+# Create virtual environment
+python3 -m venv .venv
+
+# Activate (Linux/macOS)
+source .venv/bin/activate
+
+# Activate (Windows)
+.venv\Scripts\activate
+
+# Install
+pip install -e .
+```
+
+### Dependencies
+
+The program requires only 2 core dependencies:
+
+```python
+lxml>=5.0.0      # HTML/XML parsing
+requests>=2.31.0 # HTTP client
+```
+
+---
+
+## Cookie Setup
+
+Since direct login is disabled, you must extract cookies from your browser:
+
+### Method 1: Browser Developer Tools
+
+1. Log in to https://learning.oreilly.com in your browser
+2. Open Developer Tools (F12)
+3. Go to "Application" tab → "Cookies" → "https://learning.oreilly.com"
+4. Copy relevant cookies and create `cookies.json`:
+
+```json
+{
+  "orm-jwt": "your-jwt-token-here",
+  "sessionid": "your-session-id-here"
+}
+```
+
+### Method 2: Browser Extension
+
+Use a cookie export extension like "EditThisCookie" or "Cookie-Editor" to export cookies from `learning.oreilly.com`.
+
+**⚠️ Security Note**: The `cookies.json` file contains your session token. Keep it private and don't commit it to version control.
 
 ## Usage:
 It's really simple to use, just choose a book from the library and replace in the following command:
@@ -153,7 +236,7 @@ In this case, I suggest you to convert the `EPUB` to `AZW3` with Calibre or to `
     (9781491958698)/9781491958698.epub
 
         If you like it, please * this project on GitHub to make it known:
-            https://github.com/lorenzodifuccia/safaribooks
+            https://github.com/willianpaixao/safaribooks
         e don't forget to renew your Safari Books Online subscription:
             https://learning.oreilly.com
 
@@ -173,7 +256,74 @@ In this case, I suggest you to convert the `EPUB` to `AZW3` with Calibre or to `
 
 ---
 
-## Thanks!!
-For any kind of problem, please don't hesitate to open an issue here on *GitHub*.
+## Development Setup (For Contributors)
 
-*Lorenzo Di Fuccia*
+Want to contribute? Here's how to set up a development environment:
+
+```bash
+# 1. Fork and clone
+git clone https://github.com/YOUR-USERNAME/safaribooks.git
+cd safaribooks
+
+# 2. Create virtual environment
+python3 -m venv .venv
+source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+
+# 3. Install with dev dependencies
+pip install -e ".[development]"
+
+# 4. Install pre-commit hooks
+pre-commit install
+
+# 5. Run tests to verify setup
+pytest tests/ -v
+```
+
+### Development Tools
+
+- **Ruff**: Fast Python linter and formatter
+- **MyPy**: Static type checker
+- **Pytest**: Testing framework
+- **Pre-commit**: Git hooks for code quality
+
+### Code Quality Commands
+
+```bash
+# Format code
+ruff format .
+
+# Lint code
+ruff check .
+
+# Auto-fix issues
+ruff check . --fix
+
+# Type check
+mypy safaribooks.py logger.py
+
+# Run all pre-commit hooks
+pre-commit run --all-files
+```
+
+---
+
+## Testing
+
+### Running Tests
+
+```bash
+# Run all tests
+pytest tests/
+
+# Run with verbose output
+pytest tests/ -v
+
+# Run specific test file
+pytest tests/unit/test_parser.py
+
+# Run specific test
+pytest tests/unit/test_parser.py::TestLinkReplace::test_replace_html_with_xhtml
+
+# Run with coverage report
+pytest tests/ --cov=safaribooks --cov=logger --cov-report=term-missing
+```

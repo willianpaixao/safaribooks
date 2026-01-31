@@ -1,26 +1,24 @@
 #!/usr/bin/env python3
-# coding: utf-8
-import re
-import os
-import sys
-import json
-import shutil
-import pathlib
-import zipfile
-from datetime import datetime, timezone
-import getpass
-import logging
 import argparse
-import requests
+import json
+import os
+import pathlib
+import re
+import shutil
+import sys
 import traceback
+import zipfile
+from datetime import UTC, datetime
 from html import escape
-from random import random
-from lxml import html, etree
 from multiprocessing import Process, Queue, Value
-from urllib.parse import urljoin, urlparse, parse_qs, quote_plus
+from random import random
+from typing import Any
+from urllib.parse import parse_qs, quote_plus, urljoin, urlparse
 
-from logger import setup_logger, get_logger, set_log_level, get_valid_log_levels
-from typing import Any, Union
+import requests
+from lxml import etree, html
+
+from logger import get_logger, get_valid_log_levels, setup_logger
 
 
 PATH = os.path.dirname(os.path.realpath(__file__))
@@ -56,7 +54,7 @@ class Display:
         self.columns, _ = shutil.get_terminal_size()
 
         # Allow dynamic assignment of these attributes
-        self.book_ad_info: Union[bool, int] = False
+        self.book_ad_info: bool | int = False
         self.css_ad_info = Value("i", 0)
         self.images_ad_info = Value("i", 0)
         self.last_request: Any = (None,)
@@ -81,7 +79,9 @@ class Display:
         logger.debug("".join(traceback.format_tb(tb)))
         logger.error("Unhandled Exception: %s (type: %s)" % (o, o.__class__.__name__))
         if self.output_dir_set:
-            logger.error("Please delete the output directory '%s' and restart the program." % self.output_dir)
+            logger.error(
+                "Please delete the output directory '%s' and restart the program." % self.output_dir
+            )
         logger.critical("Aborting...")
         self.save_last_request()
         sys.exit(1)
@@ -90,19 +90,28 @@ class Display:
         """Save information about the last request for debugging."""
         logger = get_logger("SafariBooks")
         if any(self.last_request):
-            logger.debug("Last request done:\n\tURL: {0}\n\tDATA: {1}\n\tOTHERS: {2}\n\n\t{3}\n{4}\n\n{5}\n"
-                         .format(*self.last_request))
+            logger.debug(
+                "Last request done:\n\tURL: {0}\n\tDATA: {1}\n\tOTHERS: {2}\n\n\t{3}\n{4}\n\n{5}\n".format(
+                    *self.last_request
+                )
+            )
 
     def intro(self):
         """Display the program intro."""
-        output = self.SH_YELLOW + (r"""
+        output = (
+            self.SH_YELLOW
+            + (
+                r"""
  ██████╗     ██████╗ ██╗  ██╗   ██╗██████╗
 ██╔═══██╗    ██╔══██╗██║  ╚██╗ ██╔╝╚════██╗
 ██║   ██║    ██████╔╝██║   ╚████╔╝   ▄███╔╝
 ██║   ██║    ██╔══██╗██║    ╚██╔╝    ▀▀══╝
 ╚██████╔╝    ██║  ██║███████╗██║     ██╗
  ╚═════╝     ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝
-""") + self.SH_DEFAULT
+"""
+            )
+            + self.SH_DEFAULT
+        )
         output += "\n" + "~" * (self.columns // 2)
         self.out(output)
 
@@ -139,9 +148,9 @@ class Display:
             ("Rights", info.get("rights", "")),
             ("Description", description[:500] + "..." if len(description) >= 500 else description),
             ("Release Date", info.get("issued", "")),
-            ("URL", info.get("web_url", ""))
+            ("URL", info.get("web_url", "")),
         ]:
-            logger.warning("{0}{1}{2}: {3}".format(self.SH_YELLOW, t[0], self.SH_DEFAULT, t[1]))
+            logger.warning(f"{self.SH_YELLOW}{t[0]}{self.SH_DEFAULT}: {t[1]}")
 
     def state(self, origin, done):
         """Display progress state."""
@@ -150,8 +159,15 @@ class Display:
         if self.state_status.value < progress:
             self.state_status.value = progress
             sys.stdout.write(
-                "\r    " + self.SH_BG_YELLOW + "[" + ("#" * bar).ljust(self.columns - 11, "-") + "]" +
-                self.SH_DEFAULT + ("%4s" % progress) + "%" + ("\n" if progress == 100 else "")
+                "\r    "
+                + self.SH_BG_YELLOW
+                + "["
+                + ("#" * bar).ljust(self.columns - 11, "-")
+                + "]"
+                + self.SH_DEFAULT
+                + ("%4s" % progress)
+                + "%"
+                + ("\n" if progress == 100 else "")
             )
 
     def done(self, epub_file):
@@ -163,15 +179,23 @@ class Display:
         """Format API error messages."""
         message = "API: "
         if "detail" in response and "Not found" in response["detail"]:
-            message += "book's not present in Safari Books Online.\n" \
-                       "    The book identifier is the digits that you can find in the URL:\n" \
-                       "    `" + SAFARI_BASE_URL + "/library/view/book-name/XXXXXXXXXXXXX/`"
+            message += (
+                "book's not present in Safari Books Online.\n"
+                "    The book identifier is the digits that you can find in the URL:\n"
+                "    `" + SAFARI_BASE_URL + "/library/view/book-name/XXXXXXXXXXXXX/`"
+            )
 
         else:
             os.remove(COOKIES_FILE)
-            message += "Out-of-Session%s.\n" % (" (%s)" % response["detail"]) if "detail" in response else "" + \
-                       Display.SH_YELLOW + "[+]" + Display.SH_DEFAULT + \
-                       " Use the `--cred` or `--login` options in order to perform the auth login to Safari."
+            message += (
+                "Out-of-Session%s.\n" % (" (%s)" % response["detail"])
+                if "detail" in response
+                else ""
+                + Display.SH_YELLOW
+                + "[+]"
+                + Display.SH_DEFAULT
+                + " Use the `--cred` or `--login` options in order to perform the auth login to Safari."
+            )
 
         return message
 
@@ -182,82 +206,92 @@ class SafariBooks:
 
     API_TEMPLATE = SAFARI_BASE_URL + "/api/v1/book/{0}/"
 
-    BASE_01_HTML = "<!DOCTYPE html>\n" \
-                   "<html lang=\"en\" xml:lang=\"en\" xmlns=\"http://www.w3.org/1999/xhtml\"" \
-                   " xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"" \
-                   " xsi:schemaLocation=\"http://www.w3.org/2002/06/xhtml2/" \
-                   " http://www.w3.org/MarkUp/SCHEMA/xhtml2.xsd\"" \
-                   " xmlns:epub=\"http://www.idpf.org/2007/ops\">\n" \
-                   "<head>\n" \
-                   "{0}\n" \
-                   "<style type=\"text/css\">" \
-                   "body{{margin:1em;background-color:transparent!important;}}" \
-                   "#sbo-rt-content *{{text-indent:0pt!important;}}#sbo-rt-content .bq{{margin-right:1em!important;}}"
+    BASE_01_HTML = (
+        "<!DOCTYPE html>\n"
+        '<html lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml"'
+        ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+        ' xsi:schemaLocation="http://www.w3.org/2002/06/xhtml2/'
+        ' http://www.w3.org/MarkUp/SCHEMA/xhtml2.xsd"'
+        ' xmlns:epub="http://www.idpf.org/2007/ops">\n'
+        "<head>\n"
+        "{0}\n"
+        '<style type="text/css">'
+        "body{{margin:1em;background-color:transparent!important;}}"
+        "#sbo-rt-content *{{text-indent:0pt!important;}}#sbo-rt-content .bq{{margin-right:1em!important;}}"
+    )
 
-    KINDLE_HTML = "#sbo-rt-content *{{word-wrap:break-word!important;" \
-                  "word-break:break-word!important;}}#sbo-rt-content table,#sbo-rt-content pre" \
-                  "{{overflow-x:unset!important;overflow:unset!important;" \
-                  "overflow-y:unset!important;white-space:pre-wrap!important;}}"
+    KINDLE_HTML = (
+        "#sbo-rt-content *{{word-wrap:break-word!important;"
+        "word-break:break-word!important;}}#sbo-rt-content table,#sbo-rt-content pre"
+        "{{overflow-x:unset!important;overflow:unset!important;"
+        "overflow-y:unset!important;white-space:pre-wrap!important;}}"
+    )
 
-    BASE_02_HTML = "</style>" \
-                   "</head>\n" \
-                   "<body>{1}</body>\n</html>"
+    BASE_02_HTML = "</style></head>\n<body>{1}</body>\n</html>"
 
-    CONTAINER_XML = "<?xml version=\"1.0\"?>" \
-                    "<container version=\"1.0\" xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\">" \
-                    "<rootfiles>" \
-                    "<rootfile full-path=\"OEBPS/content.opf\" media-type=\"application/oebps-package+xml\" />" \
-                    "</rootfiles>" \
-                    "</container>"
+    CONTAINER_XML = (
+        '<?xml version="1.0"?>'
+        '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+        "<rootfiles>"
+        '<rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml" />'
+        "</rootfiles>"
+        "</container>"
+    )
 
     # Format: ID, Title, Authors, Description, Subjects, Publisher, Rights, Date, CoverId, MANIFEST, SPINE, CoverUrl, Modified
-    CONTENT_OPF = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" \
-                  "<package xmlns=\"http://www.idpf.org/2007/opf\" unique-identifier=\"bookid\" version=\"3.0\">\n" \
-                  "<metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n" \
-                  "<dc:title>{1}</dc:title>\n" \
-                  "{2}\n" \
-                  "<dc:description>{3}</dc:description>\n" \
-                  "{4}" \
-                  "<dc:publisher>{5}</dc:publisher>\n" \
-                  "<dc:rights>{6}</dc:rights>\n" \
-                  "<dc:language>en-US</dc:language>\n" \
-                  "<dc:date>{7}</dc:date>\n" \
-                  "<dc:identifier id=\"bookid\">{0}</dc:identifier>\n" \
-                  "<meta property=\"dcterms:modified\">{12}</meta>\n" \
-                  "</metadata>\n" \
-                  "<manifest>\n" \
-                  "<item id=\"ncx\" href=\"toc.ncx\" media-type=\"application/x-dtbncx+xml\" />\n" \
-                  "<item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\" />\n" \
-                  "{9}\n" \
-                  "</manifest>\n" \
-                  "<spine>\n{10}</spine>\n" \
-                  "<guide><reference href=\"{11}\" title=\"Cover\" type=\"cover\" /></guide>\n" \
-                  "</package>"
+    CONTENT_OPF = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid" version="3.0">\n'
+        '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n'
+        "<dc:title>{1}</dc:title>\n"
+        "{2}\n"
+        "<dc:description>{3}</dc:description>\n"
+        "{4}"
+        "<dc:publisher>{5}</dc:publisher>\n"
+        "<dc:rights>{6}</dc:rights>\n"
+        "<dc:language>en-US</dc:language>\n"
+        "<dc:date>{7}</dc:date>\n"
+        '<dc:identifier id="bookid">{0}</dc:identifier>\n'
+        '<meta property="dcterms:modified">{12}</meta>\n'
+        "</metadata>\n"
+        "<manifest>\n"
+        '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml" />\n'
+        '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav" />\n'
+        "{9}\n"
+        "</manifest>\n"
+        "<spine>\n{10}</spine>\n"
+        '<guide><reference href="{11}" title="Cover" type="cover" /></guide>\n'
+        "</package>"
+    )
 
     # Format: ID, Depth, Title, Author, NAVMAP
-    TOC_NCX = "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"no\" ?>\n" \
-              "<!DOCTYPE ncx PUBLIC \"-//NISO//DTD ncx 2005-1//EN\"" \
-              " \"http://www.daisy.org/z3986/2005/ncx-2005-1.dtd\">\n" \
-              "<ncx xmlns=\"http://www.daisy.org/z3986/2005/ncx/\" version=\"2005-1\">\n" \
-              "<head>\n" \
-              "<meta content=\"ID:ISBN:{0}\" name=\"dtb:uid\"/>\n" \
-              "<meta content=\"{1}\" name=\"dtb:depth\"/>\n" \
-              "<meta content=\"0\" name=\"dtb:totalPageCount\"/>\n" \
-              "<meta content=\"0\" name=\"dtb:maxPageNumber\"/>\n" \
-              "</head>\n" \
-              "<docTitle><text>{2}</text></docTitle>\n" \
-              "<docAuthor><text>{3}</text></docAuthor>\n" \
-              "<navMap>{4}</navMap>\n" \
-              "</ncx>"
+    TOC_NCX = (
+        '<?xml version="1.0" encoding="utf-8" standalone="no" ?>\n'
+        '<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN"'
+        ' "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">\n'
+        '<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">\n'
+        "<head>\n"
+        '<meta content="ID:ISBN:{0}" name="dtb:uid"/>\n'
+        '<meta content="{1}" name="dtb:depth"/>\n'
+        '<meta content="0" name="dtb:totalPageCount"/>\n'
+        '<meta content="0" name="dtb:maxPageNumber"/>\n'
+        "</head>\n"
+        "<docTitle><text>{2}</text></docTitle>\n"
+        "<docAuthor><text>{3}</text></docAuthor>\n"
+        "<navMap>{4}</navMap>\n"
+        "</ncx>"
+    )
 
     # Format: Title, NAV_ITEMS
-    NAV_XHTML = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" \
-                "<!DOCTYPE html>\n" \
-                "<html xmlns=\"http://www.w3.org/1999/xhtml\" " \
-                "xmlns:epub=\"http://www.idpf.org/2007/ops\" xml:lang=\"en\" lang=\"en\">\n" \
-                "<head>\n<meta charset=\"utf-8\" />\n<title>{0}</title>\n</head>\n" \
-                "<body>\n<nav epub:type=\"toc\" id=\"toc\">\n" \
-                "<h1>Table of Contents</h1>\n<ol>\n{1}</ol>\n</nav>\n</body>\n</html>"
+    NAV_XHTML = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        "<!DOCTYPE html>\n"
+        '<html xmlns="http://www.w3.org/1999/xhtml" '
+        'xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="en" lang="en">\n'
+        '<head>\n<meta charset="utf-8" />\n<title>{0}</title>\n</head>\n'
+        '<body>\n<nav epub:type="toc" id="toc">\n'
+        "<h1>Table of Contents</h1>\n<ol>\n{1}</ol>\n</nav>\n</body>\n</html>"
+    )
 
     HEADERS = {
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
@@ -265,10 +299,10 @@ class SafariBooks:
         "Referer": LOGIN_ENTRY_URL,
         "Upgrade-Insecure-Requests": "1",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/90.0.4430.212 Safari/537.36"
+        "Chrome/90.0.4430.212 Safari/537.36",
     }
 
-    COOKIE_FLOAT_MAX_AGE_PATTERN = re.compile(r'(max-age=\d*\.\d*)', re.IGNORECASE)
+    COOKIE_FLOAT_MAX_AGE_PATTERN = re.compile(r"(max-age=\d*\.\d*)", re.IGNORECASE)
 
     def __init__(self, args):
         self.args = args
@@ -290,10 +324,15 @@ class SafariBooks:
 
         if not args.cred:
             if not os.path.isfile(COOKIES_FILE):
-                self.logger.error("Login: unable to find `cookies.json` file.\n"
-                                  "    Please use the `--cred` or `--login` options to perform the login.")
+                self.logger.error(
+                    "Login: unable to find `cookies.json` file.\n"
+                    "    Please use the `--cred` or `--login` options to perform the login."
+                )
                 if self.display.output_dir_set:
-                    self.logger.error("Please delete the output directory '%s' and restart the program." % self.display.output_dir)
+                    self.logger.error(
+                        "Please delete the output directory '%s' and restart the program."
+                        % self.display.output_dir
+                    )
                 self.logger.critical("Aborting...")
                 self.display.save_last_request()
                 sys.exit(1)
@@ -304,7 +343,7 @@ class SafariBooks:
             self.logger.warning("Logging into Safari Books Online...")
             self.do_login(*args.cred)
             if not args.no_cookies:
-                json.dump(self.session.cookies.get_dict(), open(COOKIES_FILE, 'w'))
+                json.dump(self.session.cookies.get_dict(), open(COOKIES_FILE, "w"))
 
         self.check_login()
 
@@ -326,8 +365,9 @@ class SafariBooks:
         self.book_title = self.book_info["title"]
         self.base_url = self.book_info["web_url"]
 
-        self.clean_book_title = "".join(self.escape_dirname(self.book_title).split(",")[:2]) \
-                                + " ({0})".format(self.book_id)
+        self.clean_book_title = (
+            "".join(self.escape_dirname(self.book_title).split(",")[:2]) + f" ({self.book_id})"
+        )
 
         books_dir = os.path.join(PATH, "Books")
         if not os.path.isdir(books_dir):
@@ -346,20 +386,22 @@ class SafariBooks:
         self.images = []
 
         self.logger.warning("Downloading book contents... (%s chapters)" % len(self.book_chapters))
-        self.BASE_HTML = self.BASE_01_HTML + (self.KINDLE_HTML if not args.kindle else "") + self.BASE_02_HTML
+        self.BASE_HTML = (
+            self.BASE_01_HTML + (self.KINDLE_HTML if not args.kindle else "") + self.BASE_02_HTML
+        )
 
         self.cover = False
         self.get()
         if not self.cover:
             self.cover = self.get_default_cover() if "cover" in self.book_info else False
             cover_html = self.parse_html(
-                html.fromstring("<div id=\"sbo-rt-content\"><img src=\"Images/{0}\"></div>".format(self.cover)), True
+                html.fromstring(f'<div id="sbo-rt-content"><img src="Images/{self.cover}"></div>'),
+                True,
             )
 
-            self.book_chapters = [{
-                "filename": "default_cover.xhtml",
-                "title": "Cover"
-            }] + self.book_chapters
+            self.book_chapters = [
+                {"filename": "default_cover.xhtml", "title": "Cover"}
+            ] + self.book_chapters
 
             self.filename = self.book_chapters[0]["filename"]
             self.save_page_html(cover_html)
@@ -387,7 +429,10 @@ class SafariBooks:
         self.logger.error(error_message)
 
         if self.display.output_dir_set:
-            self.logger.error("Please delete the output directory '%s' and restart the program." % self.display.output_dir)
+            self.logger.error(
+                "Please delete the output directory '%s' and restart the program."
+                % self.display.output_dir
+            )
 
         self.logger.critical("Aborting...")
         self.display.save_last_request()
@@ -403,21 +448,25 @@ class SafariBooks:
     def requests_provider(self, url, is_post=False, data=None, perform_redirect=True, **kwargs):
         try:
             response = getattr(self.session, "post" if is_post else "get")(
-                url,
-                data=data,
-                allow_redirects=False,
-                **kwargs
+                url, data=data, allow_redirects=False, **kwargs
             )
 
             self.handle_cookie_update(response.raw.headers.getlist("Set-Cookie"))
 
             self.display.last_request = (
-                url, data, kwargs, response.status_code, "\n".join(
-                    ["\t{}: {}".format(*h) for h in response.headers.items()]
-                ), response.text
+                url,
+                data,
+                kwargs,
+                response.status_code,
+                "\n".join(["\t{}: {}".format(*h) for h in response.headers.items()]),
+                response.text,
             )
 
-        except (requests.ConnectionError, requests.ConnectTimeout, requests.RequestException) as request_exception:
+        except (
+            requests.ConnectionError,
+            requests.ConnectTimeout,
+            requests.RequestException,
+        ) as request_exception:
             self.logger.error(str(request_exception))
             return 0
 
@@ -438,7 +487,7 @@ class SafariBooks:
         if "@" not in new_cred[0]:
             return False
 
-        new_cred[1] = cred[sep + 1:]
+        new_cred[1] = cred[sep + 1 :]
         return new_cred
 
     def do_login(self, email, password):
@@ -451,37 +500,47 @@ class SafariBooks:
             next_parameter = parse_qs(urlparse(response.request.url).query)["next"][0]
 
         except (AttributeError, ValueError, IndexError):
-            self.exit_with_error("Login: unable to complete login on Safari Books Online. Try again...")
+            self.exit_with_error(
+                "Login: unable to complete login on Safari Books Online. Try again..."
+            )
 
         redirect_uri = API_ORIGIN_URL + quote_plus(next_parameter)
 
         response = self.requests_provider(
             self.LOGIN_URL,
             is_post=True,
-            json={
-                "email": email,
-                "password": password,
-                "redirect_uri": redirect_uri
-            },
-            perform_redirect=False
+            json={"email": email, "password": password, "redirect_uri": redirect_uri},
+            perform_redirect=False,
         )
 
         if response == 0:
-            self.exit_with_error("Login: unable to perform auth to Safari Books Online.\n    Try again...")
+            self.exit_with_error(
+                "Login: unable to perform auth to Safari Books Online.\n    Try again..."
+            )
 
         if response.status_code != 200:  # TODO To be reviewed
             try:
                 error_page = html.fromstring(response.text)
                 errors_message = error_page.xpath("//ul[@class='errorlist']//li/text()")
                 recaptcha = error_page.xpath("//div[@class='g-recaptcha']")
-                messages = (["    `%s`" % error for error in errors_message
-                             if "password" in error or "email" in error] if len(errors_message) else []) + \
-                           (["    `ReCaptcha required (wait or do logout from the website).`"] if len(
-                               recaptcha) else [])
+                messages = (
+                    [
+                        "    `%s`" % error
+                        for error in errors_message
+                        if "password" in error or "email" in error
+                    ]
+                    if len(errors_message)
+                    else []
+                ) + (
+                    ["    `ReCaptcha required (wait or do logout from the website).`"]
+                    if len(recaptcha)
+                    else []
+                )
                 self.exit_with_error(
-                    "Login: unable to perform auth login to Safari Books Online.\n" +
-                    "[*] Details:\n" + "%s" % "\n".join(
-                        messages if len(messages) else ["    Unexpected error!"])
+                    "Login: unable to perform auth login to Safari Books Online.\n"
+                    "[*] Details:\n"
+                    + "%s"
+                    % "\n".join(messages if messages else ["    Unexpected error!"])
                 )
             except (html.etree.ParseError, html.etree.ParserError) as parsing_error:
                 self.logger.error(parsing_error)
@@ -490,7 +549,9 @@ class SafariBooks:
                     " trying to parse the login details of Safari Books Online. Try again..."
                 )
 
-        self.jwt = response.json()  # TODO: save JWT Tokens and use the refresh_token to restore user session
+        self.jwt = (
+            response.json()
+        )  # TODO: save JWT Tokens and use the refresh_token to restore user session
         response = self.requests_provider(self.jwt["redirect_uri"])
         if response == 0:
             self.exit_with_error("Login: unable to reach Safari Books Online. Try again...")
@@ -504,7 +565,7 @@ class SafariBooks:
         elif response.status_code != 200:
             self.exit_with_error("Authentication issue: unable to access profile page.")
 
-        elif "user_type\":\"Expired\"" in response.text:
+        elif 'user_type":"Expired"' in response.text:
             self.exit_with_error("Authentication issue: account subscription expired.")
 
         self.logger.warning("Successfully authenticated.")
@@ -523,7 +584,7 @@ class SafariBooks:
 
         for key, value in response.items():
             if value is None:
-                response[key] = 'n/a'
+                response[key] = "n/a"
 
         return response
 
@@ -544,7 +605,9 @@ class SafariBooks:
             sys.setrecursionlimit(response["count"])
 
         result = []
-        result.extend([c for c in response["results"] if "cover" in c["filename"] or "cover" in c["title"]])
+        result.extend(
+            [c for c in response["results"] if "cover" in c["filename"] or "cover" in c["title"]]
+        )
         for c in result:
             del response["results"][response["results"].index(c)]
 
@@ -558,7 +621,7 @@ class SafariBooks:
             return False
 
         file_ext = response.headers["Content-Type"].split("/")[-1]
-        with open(os.path.join(self.images_path, "default_cover." + file_ext), 'wb') as i:
+        with open(os.path.join(self.images_path, "default_cover." + file_ext), "wb") as i:
             for chunk in response.iter_content(1024):
                 i.write(chunk)
 
@@ -568,8 +631,8 @@ class SafariBooks:
         response = self.requests_provider(url)
         if response == 0 or response.status_code != 200:
             self.display.exit(
-                "Crawler: error trying to retrieve this page: %s (%s)\n    From: %s" %
-                (self.filename, self.chapter_title, url)
+                "Crawler: error trying to retrieve this page: %s (%s)\n    From: %s"
+                % (self.filename, self.chapter_title, url)
             )
 
         root = None
@@ -579,54 +642,106 @@ class SafariBooks:
         except (html.etree.ParseError, html.etree.ParserError) as parsing_error:
             self.display.error(parsing_error)
             self.display.exit(
-                "Crawler: error trying to parse this page: %s (%s)\n    From: %s" %
-                (self.filename, self.chapter_title, url)
+                "Crawler: error trying to parse this page: %s (%s)\n    From: %s"
+                % (self.filename, self.chapter_title, url)
             )
 
         return root
 
     @staticmethod
     def url_is_absolute(url):
+        """Check if URL is absolute (has a network location/domain).
+
+        Args:
+            url: URL string to check
+
+        Returns:
+            True if URL has a netloc (e.g., http://example.com), False otherwise
+        """
         return bool(urlparse(url).netloc)
 
     @staticmethod
     def is_image_link(url: str):
+        """Check if URL points to an image file based on extension.
+
+        Args:
+            url: URL or file path to check
+
+        Returns:
+            True if file extension is jpg, jpeg, png, or gif (case-insensitive)
+        """
         return pathlib.Path(url).suffix[1:].lower() in ["jpg", "jpeg", "png", "gif"]
 
     def link_replace(self, link):
+        """Replace and transform links for EPUB format.
+
+        Transforms HTML links to XHTML format and reorganizes image paths.
+
+        Args:
+            link: URL or link to transform
+
+        Returns:
+            Transformed link suitable for EPUB:
+            - Images moved to Images/ directory
+            - .html extensions changed to .xhtml
+            - Book-specific URLs stripped and recursively processed
+            - mailto: links preserved unchanged
+        """
         if link and not link.startswith("mailto"):
             if not self.url_is_absolute(link):
-                if any(x in link for x in ["cover", "images", "graphics"]) or \
-                        self.is_image_link(link):
+                if any(x in link for x in ["cover", "images", "graphics"]) or self.is_image_link(
+                    link
+                ):
                     image = link.split("/")[-1]
                     return "Images/" + image
 
                 return link.replace(".html", ".xhtml")
 
-            else:
-                if self.book_id in link:
-                    return self.link_replace(link.split(self.book_id)[-1])
+            if self.book_id in link:
+                return self.link_replace(link.split(self.book_id)[-1])
 
         return link
 
     @staticmethod
     def get_cover(html_root):
+        """Extract cover image element from HTML.
+
+        Searches for cover image using case-insensitive matching on multiple attributes.
+        Checks img tags directly, then images within divs and links with 'cover' in their attributes.
+
+        Args:
+            html_root: lxml HTML element tree to search
+
+        Returns:
+            lxml image element if found, None otherwise
+
+        Note:
+            Searches for 'cover' (case-insensitive) in:
+            - img id, class, name, src, alt attributes
+            - div and link container attributes
+        """
         lowercase_ns = etree.FunctionNamespace(None)
         lowercase_ns["lower-case"] = lambda _, n: n[0].lower() if n and len(n) else ""
 
-        images = html_root.xpath("//img[contains(lower-case(@id), 'cover') or contains(lower-case(@class), 'cover') or"
-                                 "contains(lower-case(@name), 'cover') or contains(lower-case(@src), 'cover') or"
-                                 "contains(lower-case(@alt), 'cover')]")
+        images = html_root.xpath(
+            "//img[contains(lower-case(@id), 'cover') or contains(lower-case(@class), 'cover') or"
+            "contains(lower-case(@name), 'cover') or contains(lower-case(@src), 'cover') or"
+            "contains(lower-case(@alt), 'cover')]"
+        )
         if len(images):
             return images[0]
 
-        divs = html_root.xpath("//div[contains(lower-case(@id), 'cover') or contains(lower-case(@class), 'cover') or"
-                               "contains(lower-case(@name), 'cover') or contains(lower-case(@src), 'cover')]//img")
+        divs = html_root.xpath(
+            "//div[contains(lower-case(@id), 'cover') or contains(lower-case(@class), 'cover') or"
+            "contains(lower-case(@name), 'cover') or contains(lower-case(@src), 'cover')]//img"
+        )
         if len(divs):
             return divs[0]
 
-        a = html_root.xpath("//a[contains(lower-case(@id), 'cover') or contains(lower-case(@class), 'cover') or"
-                            "contains(lower-case(@name), 'cover') or contains(lower-case(@src), 'cover')]//img")
+        a = html_root.xpath(
+            "//a[contains(lower-case(@id), 'cover') or contains(lower-case(@class), 'cover') or"
+            "contains(lower-case(@name), 'cover') or contains(lower-case(@src), 'cover')]//img"
+        )
         if len(a):
             return a[0]
 
@@ -640,8 +755,8 @@ class SafariBooks:
         book_content = root.xpath("//div[@id='sbo-rt-content']")
         if not len(book_content):
             self.display.exit(
-                "Parser: book content's corrupted or not present: %s (%s)" %
-                (self.filename, self.chapter_title)
+                "Parser: book content's corrupted or not present: %s (%s)"
+                % (self.filename, self.chapter_title)
             )
 
         page_css = ""
@@ -651,21 +766,28 @@ class SafariBooks:
                     self.css.append(chapter_css_url)
                     self.logger.info("Crawler: found a new CSS at %s" % chapter_css_url)
 
-                page_css += "<link href=\"Styles/Style{0:0>2}.css\" " \
-                            "rel=\"stylesheet\" type=\"text/css\" />\n".format(self.css.index(chapter_css_url))
+                page_css += (
+                    f'<link href="Styles/Style{self.css.index(chapter_css_url):0>2}.css" '
+                    'rel="stylesheet" type="text/css" />\n'
+                )
 
         stylesheet_links = root.xpath("//link[@rel='stylesheet']")
         if len(stylesheet_links):
             for s in stylesheet_links:
-                css_url = urljoin("https:", s.attrib["href"]) if s.attrib["href"][:2] == "//" \
+                css_url = (
+                    urljoin("https:", s.attrib["href"])
+                    if s.attrib["href"][:2] == "//"
                     else urljoin(self.base_url, s.attrib["href"])
+                )
 
                 if css_url not in self.css:
                     self.css.append(css_url)
                     self.logger.info("Crawler: found a new CSS at %s" % css_url)
 
-                page_css += "<link href=\"Styles/Style{0:0>2}.css\" " \
-                            "rel=\"stylesheet\" type=\"text/css\" />\n".format(self.css.index(css_url))
+                page_css += (
+                    f'<link href="Styles/Style{self.css.index(css_url):0>2}.css" '
+                    'rel="stylesheet" type="text/css" />\n'
+                )
 
         stylesheets = root.xpath("//style")
         if len(stylesheets):
@@ -675,13 +797,13 @@ class SafariBooks:
                     del css.attrib["data-template"]
 
                 try:
-                    page_css += html.tostring(css, method="xml", encoding='unicode') + "\n"
+                    page_css += html.tostring(css, method="xml", encoding="unicode") + "\n"
 
                 except (html.etree.ParseError, html.etree.ParserError) as parsing_error:
                     self.display.error(parsing_error)
                     self.display.exit(
-                        "Parser: error trying to parse one CSS found in this page: %s (%s)" %
-                        (self.filename, self.chapter_title)
+                        "Parser: error trying to parse one CSS found in this page: %s (%s)"
+                        % (self.filename, self.chapter_title)
                     )
 
         # TODO: add all not covered tag for `link_replace` function
@@ -689,7 +811,7 @@ class SafariBooks:
         if len(svg_image_tags):
             for img in svg_image_tags:
                 image_attr_href = [x for x in img.attrib.keys() if "href" in x]
-                if len(image_attr_href):
+                if image_attr_href:
                     svg_url = img.attrib.get(image_attr_href[0])
                     svg_root = img.getparent().getparent()
                     new_img = svg_root.makeelement("img")
@@ -705,12 +827,14 @@ class SafariBooks:
             if first_page:
                 is_cover = self.get_cover(book_content)
                 if is_cover is not None:
-                    page_css = "<style>" \
-                               "body{display:table;position:absolute;margin:0!important;height:100%;width:100%;}" \
-                               "#Cover{display:table-cell;vertical-align:middle;text-align:center;}" \
-                               "img{height:90vh;margin-left:auto;margin-right:auto;}" \
-                               "</style>"
-                    cover_html = html.fromstring("<div id=\"Cover\"></div>")
+                    page_css = (
+                        "<style>"
+                        "body{display:table;position:absolute;margin:0!important;height:100%;width:100%;}"
+                        "#Cover{display:table-cell;vertical-align:middle;text-align:center;}"
+                        "img{height:90vh;margin-left:auto;margin-right:auto;}"
+                        "</style>"
+                    )
+                    cover_html = html.fromstring('<div id="Cover"></div>')
                     cover_div = cover_html.xpath("//div")[0]
                     cover_img = cover_div.makeelement("img")
                     cover_img.attrib.update({"src": is_cover.attrib["src"]})
@@ -719,19 +843,33 @@ class SafariBooks:
 
                     self.cover = is_cover.attrib["src"]
 
-            xhtml = html.tostring(book_content, method="xml", encoding='unicode')
+            xhtml = html.tostring(book_content, method="xml", encoding="unicode")
 
         except (html.etree.ParseError, html.etree.ParserError) as parsing_error:
             self.display.error(parsing_error)
             self.display.exit(
-                "Parser: error trying to parse HTML of this page: %s (%s)" %
-                (self.filename, self.chapter_title)
+                "Parser: error trying to parse HTML of this page: %s (%s)"
+                % (self.filename, self.chapter_title)
             )
 
         return page_css, xhtml
 
     @staticmethod
     def escape_dirname(dirname, clean_space=False):
+        """Sanitize directory name by removing or replacing illegal characters.
+
+        Makes directory names safe for filesystems by:
+        - Handling colons (truncate if far into name, replace with comma on Windows)
+        - Removing special characters: < > ? / \\ | * "
+        - Optionally cleaning extra spaces
+
+        Args:
+            dirname: Directory name to sanitize
+            clean_space: If True, replace multiple spaces with single space
+
+        Returns:
+            Sanitized directory name safe for all platforms
+        """
         if ":" in dirname:
             if dirname.index(":") > 15:
                 dirname = dirname.split(":")[0]
@@ -739,7 +877,26 @@ class SafariBooks:
             elif "win" in sys.platform:
                 dirname = dirname.replace(":", ",")
 
-        for ch in ['~', '#', '%', '&', '*', '{', '}', '\\', '<', '>', '?', '/', '`', '\'', '"', '|', '+', ':']:
+        for ch in [
+            "~",
+            "#",
+            "%",
+            "&",
+            "*",
+            "{",
+            "}",
+            "\\",
+            "<",
+            ">",
+            "?",
+            "/",
+            "`",
+            "'",
+            '"',
+            "|",
+            "+",
+            ":",
+        ]:
             if ch in dirname:
                 dirname = dirname.replace(ch, "_")
 
@@ -775,8 +932,9 @@ class SafariBooks:
 
     def save_page_html(self, contents):
         self.filename = self.filename.replace(".html", ".xhtml")
-        open(os.path.join(self.BOOK_PATH, "OEBPS", self.filename), "wb") \
-            .write(self.BASE_HTML.format(contents[0], contents[1]).encode("utf-8", 'xmlcharrefreplace'))
+        open(os.path.join(self.BOOK_PATH, "OEBPS", self.filename), "wb").write(
+            self.BASE_HTML.format(contents[0], contents[1]).encode("utf-8", "xmlcharrefreplace")
+        )
 
     def get(self):
         len_books = len(self.book_chapters)
@@ -791,19 +949,20 @@ class SafariBooks:
             self.chapter_title = next_chapter["title"]
             self.filename = next_chapter["filename"]
 
-            asset_base_url = next_chapter['asset_base_url']
+            asset_base_url = next_chapter["asset_base_url"]
             api_v2_detected = False
-            if 'v2' in next_chapter['content']:
-                asset_base_url = SAFARI_BASE_URL + "/api/v2/epubs/urn:orm:book:{}/files".format(self.book_id)
+            if "v2" in next_chapter["content"]:
+                asset_base_url = (
+                    SAFARI_BASE_URL + f"/api/v2/epubs/urn:orm:book:{self.book_id}/files"
+                )
                 api_v2_detected = True
 
             if "images" in next_chapter and len(next_chapter["images"]):
-                for img_url in next_chapter['images']:
+                for img_url in next_chapter["images"]:
                     if api_v2_detected:
-                        self.images.append(asset_base_url + '/' + img_url)
+                        self.images.append(asset_base_url + "/" + img_url)
                     else:
-                        self.images.append(urljoin(next_chapter['asset_base_url'], img_url))
-
+                        self.images.append(urljoin(next_chapter["asset_base_url"], img_url))
 
             # Stylesheets
             self.chapter_stylesheets = []
@@ -813,64 +972,89 @@ class SafariBooks:
             if "site_styles" in next_chapter and len(next_chapter["site_styles"]):
                 self.chapter_stylesheets.extend(next_chapter["site_styles"])
 
-            if os.path.isfile(os.path.join(self.BOOK_PATH, "OEBPS", self.filename.replace(".html", ".xhtml"))):
-                if not self.display.book_ad_info and \
-                        next_chapter not in self.book_chapters[:self.book_chapters.index(next_chapter)]:
+            if os.path.isfile(
+                os.path.join(self.BOOK_PATH, "OEBPS", self.filename.replace(".html", ".xhtml"))
+            ):
+                if (
+                    not self.display.book_ad_info
+                    and next_chapter
+                    not in self.book_chapters[: self.book_chapters.index(next_chapter)]
+                ):
                     self.logger.info(
-                        ("File `%s` already exists.\n"
-                         "    If you want to download again all the book,\n"
-                         "    please delete the output directory '" + self.BOOK_PATH + "' and restart the program.")
-                         % self.filename.replace(".html", ".xhtml")
+                        (
+                            "File `%s` already exists.\n"
+                            "    If you want to download again all the book,\n"
+                            "    please delete the output directory '"
+                            + self.BOOK_PATH
+                            + "' and restart the program."
+                        )
+                        % self.filename.replace(".html", ".xhtml")
                     )
                     self.display.book_ad_info = 2
 
             else:
-                self.save_page_html(self.parse_html(self.get_html(next_chapter["content"]), first_page))
+                self.save_page_html(
+                    self.parse_html(self.get_html(next_chapter["content"]), first_page)
+                )
 
             self.display.state(len_books, len_books - len(self.chapters_queue))
 
     def _thread_download_css(self, url):
-        css_file = os.path.join(self.css_path, "Style{0:0>2}.css".format(self.css.index(url)))
+        css_file = os.path.join(self.css_path, f"Style{self.css.index(url):0>2}.css")
         if os.path.isfile(css_file):
-            if not self.display.css_ad_info.value and url not in self.css[:self.css.index(url)]:
-                self.logger.info(("File `%s` already exists.\n"
-                                   "    If you want to download again all the CSSs,\n"
-                                   "    please delete the output directory '" + self.BOOK_PATH + "'"
-                                   " and restart the program.") %
-                                  css_file)
+            if not self.display.css_ad_info.value and url not in self.css[: self.css.index(url)]:
+                self.logger.info(
+                    (
+                        "File `%s` already exists.\n"
+                        "    If you want to download again all the CSSs,\n"
+                        "    please delete the output directory '" + self.BOOK_PATH + "'"
+                        " and restart the program."
+                    )
+                    % css_file
+                )
                 self.display.css_ad_info.value = 1
 
         else:
             response = self.requests_provider(url)
             if response == 0:
-                self.display.error("Error trying to retrieve this CSS: %s\n    From: %s" % (css_file, url))
+                self.display.error(
+                    "Error trying to retrieve this CSS: %s\n    From: %s" % (css_file, url)
+                )
 
-            with open(css_file, 'wb') as s:
+            with open(css_file, "wb") as s:
                 s.write(response.content)
 
         self.css_done_queue.put(1)
         self.display.state(len(self.css), self.css_done_queue.qsize())
 
-
     def _thread_download_images(self, url):
         image_name = url.split("/")[-1]
         image_path = os.path.join(self.images_path, image_name)
         if os.path.isfile(image_path):
-            if not self.display.images_ad_info.value and url not in self.images[:self.images.index(url)]:
-                self.logger.info(("File `%s` already exists.\n"
-                                   "    If you want to download again all the images,\n"
-                                   "    please delete the output directory '" + self.BOOK_PATH + "'"
-                                   " and restart the program.") %
-                                  image_name)
+            if (
+                not self.display.images_ad_info.value
+                and url not in self.images[: self.images.index(url)]
+            ):
+                self.logger.info(
+                    (
+                        "File `%s` already exists.\n"
+                        "    If you want to download again all the images,\n"
+                        "    please delete the output directory '" + self.BOOK_PATH + "'"
+                        " and restart the program."
+                    )
+                    % image_name
+                )
                 self.display.images_ad_info.value = 1
 
         else:
             response = self.requests_provider(urljoin(SAFARI_BASE_URL, url), stream=True)
             if response == 0:
-                self.display.error("Error trying to retrieve this image: %s\n    From: %s" % (image_name, url))
+                self.display.error(
+                    "Error trying to retrieve this image: %s\n    From: %s" % (image_name, url)
+                )
                 return
 
-            with open(image_path, 'wb') as img:
+            with open(image_path, "wb") as img:
                 for chunk in response.iter_content(1024):
                     img.write(chunk)
 
@@ -880,7 +1064,7 @@ class SafariBooks:
     def _start_multiprocessing(self, operation, full_queue):
         if len(full_queue) > 5:
             for i in range(0, len(full_queue), 5):
-                self._start_multiprocessing(operation, full_queue[i:i + 5])
+                self._start_multiprocessing(operation, full_queue[i : i + 5])
 
         else:
             process_queue = [Process(target=operation, args=(arg,)) for arg in full_queue]
@@ -899,10 +1083,13 @@ class SafariBooks:
 
     def collect_images(self):
         if self.display.book_ad_info == 2:
-            self.logger.info("Some of the book contents were already downloaded.\n"
-                              "    If you want to be sure that all the images will be downloaded,\n"
-                              "    please delete the output directory '" + self.BOOK_PATH +
-                              "' and restart the program.")
+            self.logger.info(
+                "Some of the book contents were already downloaded.\n"
+                "    If you want to be sure that all the images will be downloaded,\n"
+                "    please delete the output directory '"
+                + self.BOOK_PATH
+                + "' and restart the program."
+            )
 
         self.display.state_status.value = -1
 
@@ -919,10 +1106,12 @@ class SafariBooks:
         for c in self.book_chapters:
             c["filename"] = c["filename"].replace(".html", ".xhtml")
             item_id = escape("".join(c["filename"].split(".")[:-1]))
-            manifest.append("<item id=\"{0}\" href=\"{1}\" media-type=\"application/xhtml+xml\" />".format(
-                item_id, c["filename"]
-            ))
-            spine.append("<itemref idref=\"{0}\"/>".format(item_id))
+            manifest.append(
+                '<item id="{0}" href="{1}" media-type="application/xhtml+xml" />'.format(
+                    item_id, c["filename"]
+                )
+            )
+            spine.append(f'<itemref idref="{item_id}"/>')
 
         for i in set(self.images):
             dot_split = i.split(".")
@@ -930,27 +1119,33 @@ class SafariBooks:
             extension = dot_split[-1]
             # Add properties="cover-image" for the cover image (EPUB 3)
             is_cover = self.cover and i in self.cover
-            properties_attr = " properties=\"cover-image\"" if is_cover else ""
-            manifest.append("<item id=\"{0}\" href=\"Images/{1}\" media-type=\"image/{2}\"{3} />".format(
-                head, i, "jpeg" if "jp" in extension else extension, properties_attr
-            ))
+            properties_attr = ' properties="cover-image"' if is_cover else ""
+            manifest.append(
+                '<item id="{0}" href="Images/{1}" media-type="image/{2}"{3} />'.format(
+                    head, i, "jpeg" if "jp" in extension else extension, properties_attr
+                )
+            )
 
         for i in range(len(self.css)):
-            manifest.append("<item id=\"style_{0:0>2}\" href=\"Styles/Style{0:0>2}.css\" "
-                            "media-type=\"text/css\" />".format(i))
+            manifest.append(
+                f'<item id="style_{i:0>2}" href="Styles/Style{i:0>2}.css" media-type="text/css" />'
+            )
 
-        authors = "\n".join("<dc:creator>{0}</dc:creator>".format(
-            escape(aut.get("name", "n/d"))
-        ) for aut in self.book_info.get("authors", []))
+        authors = "\n".join(
+            "<dc:creator>{0}</dc:creator>".format(escape(aut.get("name", "n/d")))
+            for aut in self.book_info.get("authors", [])
+        )
 
-        subjects = "\n".join("<dc:subject>{0}</dc:subject>".format(escape(sub.get("name", "n/d")))
-                             for sub in self.book_info.get("subjects", []))
+        subjects = "\n".join(
+            "<dc:subject>{0}</dc:subject>".format(escape(sub.get("name", "n/d")))
+            for sub in self.book_info.get("subjects", [])
+        )
 
         # EPUB 3 requires dcterms:modified timestamp
-        modified_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        modified_timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         return self.CONTENT_OPF.format(
-            (self.book_info.get("isbn",  self.book_id)),
+            (self.book_info.get("isbn", self.book_id)),
             escape(self.book_title),
             authors,
             escape(self.book_info.get("description", "")),
@@ -962,7 +1157,7 @@ class SafariBooks:
             "\n".join(manifest),
             "\n".join(spine),
             self.book_chapters[0]["filename"].replace(".html", ".xhtml"),
-            modified_timestamp
+            modified_timestamp,
         )
 
     @staticmethod
@@ -970,15 +1165,18 @@ class SafariBooks:
         r = ""
         for cc in l:
             c += 1
-            if int(cc["depth"]) > mx:
-                mx = int(cc["depth"])
+            mx = max(mx, int(cc["depth"]))
 
-            r += "<navPoint id=\"{0}\" playOrder=\"{1}\">" \
-                 "<navLabel><text>{2}</text></navLabel>" \
-                 "<content src=\"{3}\"/>".format(
-                    cc["fragment"] if len(cc["fragment"]) else cc["id"], c,
-                    escape(cc["label"]), cc["href"].replace(".html", ".xhtml").split("/")[-1]
-                 )
+            r += (
+                '<navPoint id="{0}" playOrder="{1}">'
+                "<navLabel><text>{2}</text></navLabel>"
+                '<content src="{3}"/>'.format(
+                    cc["fragment"] if len(cc["fragment"]) else cc["id"],
+                    c,
+                    escape(cc["label"]),
+                    cc["href"].replace(".html", ".xhtml").split("/")[-1],
+                )
+            )
 
             if cc["children"]:
                 sr, c, mx = SafariBooks.parse_toc(cc["children"], c, mx)
@@ -997,10 +1195,9 @@ class SafariBooks:
             label = escape(item["label"])
             if item["children"]:
                 children_html = SafariBooks.parse_nav_toc(item["children"])
-                result += "<li>\n<a href=\"{0}\">{1}</a>\n<ol>\n{2}</ol>\n</li>\n".format(
-                    href, label, children_html)
+                result += f'<li>\n<a href="{href}">{label}</a>\n<ol>\n{children_html}</ol>\n</li>\n'
             else:
-                result += "<li><a href=\"{0}\">{1}</a></li>\n".format(href, label)
+                result += f'<li><a href="{href}">{label}</a></li>\n'
         return result
 
     def create_nav_xhtml(self, toc_data):
@@ -1012,16 +1209,18 @@ class SafariBooks:
         """Fetch TOC data from API."""
         response = self.requests_provider(urljoin(self.api_url, "toc/"))
         if response == 0:
-            self.display.exit("API: unable to retrieve book chapters. "
-                              "Don't delete any files, just run again this program"
-                              " in order to complete the `.epub` creation!")
+            self.display.exit(
+                "API: unable to retrieve book chapters. "
+                "Don't delete any files, just run again this program"
+                " in order to complete the `.epub` creation!"
+            )
 
         toc_data = response.json()
 
         if not isinstance(toc_data, list) and len(toc_data.keys()) == 1:
             self.display.exit(
-                self.display.api_error(toc_data) +
-                " Don't delete any files, just run again this program"
+                self.display.api_error(toc_data)
+                + " Don't delete any files, just run again this program"
                 " in order to complete the `.epub` creation!"
             )
 
@@ -1038,7 +1237,7 @@ class SafariBooks:
             max_depth,
             self.book_title,
             ", ".join(aut.get("name", "") for aut in self.book_info.get("authors", [])),
-            navmap
+            navmap,
         )
 
     def _create_epub_zip(self, epub_path):
@@ -1052,7 +1251,7 @@ class SafariBooks:
 
         All other files are compressed with ZIP_DEFLATED for smaller file size.
         """
-        with zipfile.ZipFile(epub_path, 'w') as epub:
+        with zipfile.ZipFile(epub_path, "w") as epub:
             # 1. Add mimetype FIRST, uncompressed, no extra field
             mimetype_path = os.path.join(self.BOOK_PATH, "mimetype")
             epub.write(mimetype_path, "mimetype", compress_type=zipfile.ZIP_STORED)
@@ -1107,53 +1306,73 @@ class SafariBooks:
 
 # MAIN
 if __name__ == "__main__":
-    arguments = argparse.ArgumentParser(prog="safaribooks.py",
-                                        description="Download and generate an EPUB of your favorite books"
-                                                    " from Safari Books Online.",
-                                        add_help=False,
-                                        allow_abbrev=False)
+    arguments = argparse.ArgumentParser(
+        prog="safaribooks.py",
+        description="Download and generate an EPUB of your favorite books"
+        " from Safari Books Online.",
+        add_help=False,
+        allow_abbrev=False,
+    )
 
     login_arg_group = arguments.add_mutually_exclusive_group()
     login_arg_group.add_argument(
-        "--cred", metavar="<EMAIL:PASS>", default=False,
+        "--cred",
+        metavar="<EMAIL:PASS>",
+        default=False,
         help="Credentials used to perform the auth login on Safari Books Online."
-             " Es. ` --cred \"account_mail@mail.com:password01\" `."
+        ' Es. ` --cred "account_mail@mail.com:password01" `.',
     )
     login_arg_group.add_argument(
-        "--login", action='store_true',
-        help="Prompt for credentials used to perform the auth login on Safari Books Online."
+        "--login",
+        action="store_true",
+        help="Prompt for credentials used to perform the auth login on Safari Books Online.",
     )
 
     arguments.add_argument(
-        "--no-cookies", dest="no_cookies", action='store_true',
-        help="Prevent your session data to be saved into `cookies.json` file."
+        "--no-cookies",
+        dest="no_cookies",
+        action="store_true",
+        help="Prevent your session data to be saved into `cookies.json` file.",
     )
     arguments.add_argument(
-        "--kindle", dest="kindle", action='store_true',
+        "--kindle",
+        dest="kindle",
+        action="store_true",
         help="Add some CSS rules that block overflow on `table` and `pre` elements."
-             " Use this option if you're going to export the EPUB to E-Readers like Amazon Kindle."
+        " Use this option if you're going to export the EPUB to E-Readers like Amazon Kindle.",
     )
     arguments.add_argument(
-        "--log-level", dest="log_level", metavar="<LEVEL>", default="INFO",
+        "--log-level",
+        dest="log_level",
+        metavar="<LEVEL>",
+        default="INFO",
         choices=get_valid_log_levels(),
-        help="Set the logging level. Valid levels: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO)."
+        help="Set the logging level. Valid levels: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO).",
     )
-    arguments.add_argument("--help", action="help", default=argparse.SUPPRESS, help='Show this help message.')
     arguments.add_argument(
-        "--book-id", dest="bookid", metavar='<BOOK ID>', nargs='+', required=True,
+        "--help", action="help", default=argparse.SUPPRESS, help="Show this help message."
+    )
+    arguments.add_argument(
+        "--book-id",
+        dest="bookid",
+        metavar="<BOOK ID>",
+        nargs="+",
+        required=True,
         help="Book digits ID(s) that you want to download. You can specify multiple book IDs. "
-             "You can find it in the URL (X-es): "
-             "`" + SAFARI_BASE_URL + "/library/view/book-name/XXXXXXXXXXXXX/`"
+        "You can find it in the URL (X-es): "
+        "`" + SAFARI_BASE_URL + "/library/view/book-name/XXXXXXXXXXXXX/`",
     )
 
     args_parsed = arguments.parse_args()
     if args_parsed.cred or args_parsed.login:
-        print("WARNING: Due to recent changes on ORLY website, \n" \
-                "the `--cred` and `--login` options are temporarily disabled.\n"
-                "    Please use the `cookies.json` file to authenticate your account.\n"
-                "    See: https://github.com/lorenzodifuccia/safaribooks/issues/358")
+        print(
+            "WARNING: Due to recent changes on ORLY website, \n"
+            "the `--cred` and `--login` options are temporarily disabled.\n"
+            "    Please use the `cookies.json` file to authenticate your account.\n"
+            "    See: https://github.com/willianpaixao/safaribooks/issues/358"
+        )
         arguments.exit()
-        
+
         # user_email = ""
         # pre_cred = ""
 
@@ -1174,9 +1393,10 @@ if __name__ == "__main__":
 
         # args_parsed.cred = parsed_cred
 
-    else:
-        if args_parsed.no_cookies:
-            arguments.error("invalid option: `--no-cookies` is valid only if you use the `--cred` option")
+    elif args_parsed.no_cookies:
+        arguments.error(
+            "invalid option: `--no-cookies` is valid only if you use the `--cred` option"
+        )
 
     # Set up the main logger with the specified log level
     setup_logger("SafariBooks", args_parsed.log_level)
