@@ -64,20 +64,34 @@ class Display:
         # Set up exception handler
         sys.excepthook = self.unhandled_exception
 
-    def set_output_dir(self, output_dir):
+    def set_output_dir(self, output_dir: str) -> None:
+        """Set the output directory for downloads.
+
+        Args:
+            output_dir: Path to the output directory
+        """
         logger = get_logger("SafariBooks")
         logger.info("Output directory:\n    %s" % output_dir)
         self.output_dir = output_dir
         self.output_dir_set = True
 
-    def unregister(self):
+    def unregister(self) -> None:
+        """Unregister the custom exception handler."""
         sys.excepthook = sys.__excepthook__
 
-    def unhandled_exception(self, _, o, tb):
-        """Handle unhandled exceptions."""
+    def unhandled_exception(self, exc_type: type, exc_value: BaseException, exc_tb: Any) -> None:
+        """Handle unhandled exceptions.
+
+        Args:
+            exc_type: Exception type
+            exc_value: Exception instance
+            exc_tb: Traceback object
+        """
         logger = get_logger("SafariBooks")
-        logger.debug("".join(traceback.format_tb(tb)))
-        logger.error("Unhandled Exception: %s (type: %s)" % (o, o.__class__.__name__))
+        logger.debug("".join(traceback.format_tb(exc_tb)))
+        logger.error(
+            "Unhandled Exception: %s (type: %s)" % (exc_value, exc_value.__class__.__name__)
+        )
         if self.output_dir_set:
             logger.error(
                 "Please delete the output directory '%s' and restart the program." % self.output_dir
@@ -86,7 +100,7 @@ class Display:
         self.save_last_request()
         sys.exit(1)
 
-    def save_last_request(self):
+    def save_last_request(self) -> None:
         """Save information about the last request for debugging."""
         logger = get_logger("SafariBooks")
         if any(self.last_request):
@@ -96,7 +110,7 @@ class Display:
                 )
             )
 
-    def intro(self):
+    def intro(self) -> None:
         """Display the program intro."""
         output = (
             self.SH_YELLOW
@@ -115,30 +129,47 @@ class Display:
         output += "\n" + "~" * (self.columns // 2)
         self.out(output)
 
-    def out(self, put):
-        """Output a message directly to stdout (for non-logged output)."""
+    def out(self, put: str | bytes) -> None:
+        """Output a message directly to stdout (for non-logged output).
+
+        Args:
+            put: Message to output (string or bytes)
+        """
         pattern = "\r{!s}\r{!s}\n"
         try:
-            s = pattern.format(" " * self.columns, str(put, "utf-8", "replace"))
-        except TypeError:
+            # If put is bytes, decode it
+            decoded = put.decode("utf-8", "replace") if isinstance(put, bytes) else put
+            s = pattern.format(" " * self.columns, decoded)
+        except (TypeError, AttributeError):
             s = pattern.format(" " * self.columns, put)
         sys.stdout.write(s)
 
-    def parse_description(self, desc):
-        """Parse HTML description and return text content."""
+    def parse_description(self, desc: str | None) -> str:
+        """Parse HTML description and return text content.
+
+        Args:
+            desc: HTML description string or None
+
+        Returns:
+            Parsed text content or "n/d" if no description
+        """
         if not desc:
             return "n/d"
         try:
-            return html.fromstring(desc).text_content()
+            return str(html.fromstring(desc).text_content())
         except (html.etree.ParseError, html.etree.ParserError) as e:
             logger = get_logger("SafariBooks")
             logger.debug("Error parsing the description: %s" % e)
             return "n/d"
 
-    def book_info(self, info):
-        """Display book information."""
+    def book_info(self, info: dict[str, Any]) -> None:
+        """Display book information.
+
+        Args:
+            info: Dictionary containing book metadata
+        """
         logger = get_logger("SafariBooks")
-        description = self.parse_description(info.get("description", None)).replace("\n", " ")
+        description = self.parse_description(info.get("description")).replace("\n", " ")
         for t in [
             ("Title", info.get("title", "")),
             ("Authors", ", ".join(aut.get("name", "") for aut in info.get("authors", []))),
@@ -152,8 +183,13 @@ class Display:
         ]:
             logger.warning(f"{self.SH_YELLOW}{t[0]}{self.SH_DEFAULT}: {t[1]}")
 
-    def state(self, origin, done):
-        """Display progress state."""
+    def state(self, origin: int, done: int) -> None:
+        """Display progress state.
+
+        Args:
+            origin: Total number of items
+            done: Number of completed items
+        """
         progress = int(done * 100 / origin)
         bar = int(progress * (self.columns - 11) / 100)
         if self.state_status.value < progress:
@@ -170,12 +206,45 @@ class Display:
                 + ("\n" if progress == 100 else "")
             )
 
-    def done(self, epub_file):
-        """Display completion message."""
+    def done(self, epub_file: str) -> None:
+        """Display completion message.
+
+        Args:
+            epub_file: Path to the generated EPUB file
+        """
         self.info("Done: %s\n\n" % epub_file)
 
+    def info(self, message: str) -> None:
+        """Log an info message.
+
+        Args:
+            message: Message to log
+        """
+        logger = get_logger("SafariBooks")
+        logger.info(message)
+
+    def error(self, message: str) -> None:
+        """Log an error message.
+
+        Args:
+            message: Error message to log
+        """
+        logger = get_logger("SafariBooks")
+        logger.error(message)
+
+    def exit(self, message: str) -> None:
+        """Log an error message and exit the program.
+
+        Args:
+            message: Error message to display before exiting
+        """
+        logger = get_logger("SafariBooks")
+        logger.error(message)
+        self.save_last_request()
+        sys.exit(1)
+
     @staticmethod
-    def api_error(response):
+    def api_error(response: dict[str, Any]) -> str:
         """Format API error messages."""
         message = "API: "
         if "detail" in response and "Not found" in response["detail"]:
@@ -304,7 +373,12 @@ class SafariBooks:
 
     COOKIE_FLOAT_MAX_AGE_PATTERN = re.compile(r"(max-age=\d*\.\d*)", re.IGNORECASE)
 
-    def __init__(self, args):
+    def __init__(self, args: argparse.Namespace) -> None:
+        """Initialize SafariBooks downloader.
+
+        Args:
+            args: Parsed command-line arguments
+        """
         self.args = args
         self.logger = get_logger("SafariBooks")
         self.display = Display(args.bookid)
@@ -320,7 +394,7 @@ class SafariBooks:
 
         self.session.headers.update(self.HEADERS)
 
-        self.jwt = {}
+        self.jwt: dict[str, Any] = {}
 
         if not args.cred:
             if not os.path.isfile(COOKIES_FILE):
@@ -381,16 +455,16 @@ class SafariBooks:
 
         self.chapter_title = ""
         self.filename = ""
-        self.chapter_stylesheets = []
-        self.css = []
-        self.images = []
+        self.chapter_stylesheets: list[str] = []
+        self.css: list[str] = []
+        self.images: list[str] = []
 
         self.logger.warning("Downloading book contents... (%s chapters)" % len(self.book_chapters))
         self.BASE_HTML = (
             self.BASE_01_HTML + (self.KINDLE_HTML if not args.kindle else "") + self.BASE_02_HTML
         )
 
-        self.cover = False
+        self.cover: bool | str = False
         self.get()
         if not self.cover:
             self.cover = self.get_default_cover() if "cover" in self.book_info else False
@@ -406,10 +480,10 @@ class SafariBooks:
             self.filename = self.book_chapters[0]["filename"]
             self.save_page_html(cover_html)
 
-        self.css_done_queue = Queue(0) if "win" not in sys.platform else WinQueue()
+        self.css_done_queue: Queue[int] = Queue(0)  # WinQueue removed - multiprocessing disabled
         self.logger.warning("Downloading book CSSs... (%s files)" % len(self.css))
         self.collect_css()
-        self.images_done_queue = Queue(0) if "win" not in sys.platform else WinQueue()
+        self.images_done_queue: Queue[int] = Queue(0)  # WinQueue removed - multiprocessing disabled
         self.logger.warning("Downloading book images... (%s files)" % len(self.images))
         self.collect_images()
 
@@ -422,7 +496,7 @@ class SafariBooks:
         self.logger.info("Done: %s\n\n" % os.path.join(self.BOOK_PATH, self.book_id + ".epub"))
         self.display.unregister()
 
-    def exit_with_error(self, error_message):
+    def exit_with_error(self, error_message: str) -> None:
         """Exit the program with an error message."""
         if not self.display.in_error:
             self.display.in_error = True
@@ -438,16 +512,23 @@ class SafariBooks:
         self.display.save_last_request()
         sys.exit(1)
 
-    def handle_cookie_update(self, set_cookie_headers):
+    def handle_cookie_update(self, set_cookie_headers: list[str]) -> None:
         for morsel in set_cookie_headers:
             # Handle Float 'max-age' Cookie
             if self.COOKIE_FLOAT_MAX_AGE_PATTERN.search(morsel):
                 cookie_key, cookie_value = morsel.split(";")[0].split("=")
                 self.session.cookies.set(cookie_key, cookie_value)
 
-    def requests_provider(self, url, is_post=False, data=None, perform_redirect=True, **kwargs):
+    def requests_provider(
+        self,
+        url: str,
+        is_post: bool = False,
+        data: dict[str, Any] | None = None,
+        perform_redirect: bool = True,
+        **kwargs: Any,
+    ) -> requests.Response | None:
         try:
-            response = getattr(self.session, "post" if is_post else "get")(
+            response: requests.Response = getattr(self.session, "post" if is_post else "get")(
                 url, data=data, allow_redirects=False, **kwargs
             )
 
@@ -468,16 +549,17 @@ class SafariBooks:
             requests.RequestException,
         ) as request_exception:
             self.logger.error(str(request_exception))
-            return 0
+            return None
 
-        if response.is_redirect and perform_redirect:
+        if response.is_redirect and perform_redirect and response.next and response.next.url:
+            # Type narrowing: recursive call returns Optional[Response]
             return self.requests_provider(response.next.url, is_post, None, perform_redirect)
             # TODO How about **kwargs?
 
         return response
 
     @staticmethod
-    def parse_cred(cred):
+    def parse_cred(cred: str) -> list[str] | bool:
         if ":" not in cred:
             return False
 
@@ -490,20 +572,28 @@ class SafariBooks:
         new_cred[1] = cred[sep + 1 :]
         return new_cred
 
-    def do_login(self, email, password):
+    def do_login(self, email: str, password: str) -> None:
         response = self.requests_provider(self.LOGIN_ENTRY_URL)
-        if response == 0:
+        if response is None:
             self.exit_with_error("Login: unable to reach Safari Books Online. Try again...")
+        assert response is not None  # exit_with_error calls sys.exit
 
-        next_parameter = None
+        next_parameter: str | None = None
         try:
-            next_parameter = parse_qs(urlparse(response.request.url).query)["next"][0]
+            query_part = urlparse(response.request.url).query
+            query_string: str = (
+                query_part if isinstance(query_part, str) else query_part.decode("utf-8")
+            )
+            parsed_query = parse_qs(query_string)
+            next_parameter = parsed_query["next"][0]
 
-        except (AttributeError, ValueError, IndexError):
+        except (AttributeError, ValueError, IndexError, KeyError):
             self.exit_with_error(
                 "Login: unable to complete login on Safari Books Online. Try again..."
             )
 
+        # next_parameter is guaranteed to be str here because exit_with_error exits
+        assert next_parameter is not None
         redirect_uri = API_ORIGIN_URL + quote_plus(next_parameter)
 
         response = self.requests_provider(
@@ -513,10 +603,11 @@ class SafariBooks:
             perform_redirect=False,
         )
 
-        if response == 0:
+        if response is None:
             self.exit_with_error(
                 "Login: unable to perform auth to Safari Books Online.\n    Try again..."
             )
+        assert response is not None  # exit_with_error calls sys.exit
 
         if response.status_code != 200:  # TODO To be reviewed
             try:
@@ -549,17 +640,18 @@ class SafariBooks:
                     " trying to parse the login details of Safari Books Online. Try again..."
                 )
 
+        assert response is not None  # Previous check guarantees this
         self.jwt = (
             response.json()
         )  # TODO: save JWT Tokens and use the refresh_token to restore user session
         response = self.requests_provider(self.jwt["redirect_uri"])
-        if response == 0:
+        if response is None:
             self.exit_with_error("Login: unable to reach Safari Books Online. Try again...")
 
-    def check_login(self):
+    def check_login(self) -> None:
         response = self.requests_provider(PROFILE_URL, perform_redirect=False)
 
-        if response == 0:
+        if response is None:
             self.exit_with_error("Login: unable to reach Safari Books Online. Try again...")
 
         elif response.status_code != 200:
@@ -570,53 +662,58 @@ class SafariBooks:
 
         self.logger.warning("Successfully authenticated.")
 
-    def get_book_info(self):
+    def get_book_info(self) -> dict[str, Any]:
         response = self.requests_provider(self.api_url)
-        if response == 0:
+        if response is None:
             self.exit_with_error("API: unable to retrieve book info.")
+        assert response is not None  # exit_with_error calls sys.exit
 
-        response = response.json()
-        if not isinstance(response, dict) or len(response.keys()) == 1:
-            self.exit_with_error(self.display.api_error(response))
+        response_data: dict[str, Any] = response.json()
+        if not isinstance(response_data, dict) or len(response_data.keys()) == 1:
+            self.exit_with_error(self.display.api_error(response_data))
 
-        if "last_chapter_read" in response:
-            del response["last_chapter_read"]
+        response_data.pop("last_chapter_read", None)
 
-        for key, value in response.items():
+        for key, value in response_data.items():
             if value is None:
-                response[key] = "n/a"
+                response_data[key] = "n/a"
 
-        return response
+        return response_data
 
-    def get_book_chapters(self, page=1):
+    def get_book_chapters(self, page: int = 1) -> list[dict[str, Any]]:
         response = self.requests_provider(urljoin(self.api_url, "chapter/?page=%s" % page))
-        if response == 0:
+        if response is None:
+            self.display.exit("API: unable to retrieve book chapters.")
+        assert response is not None  # display.exit calls sys.exit
+
+        response_data: Any = response.json()
+
+        if not isinstance(response_data, dict) or len(response_data.keys()) == 1:
+            self.display.exit(self.display.api_error(response_data))
+
+        if "results" not in response_data or not len(response_data["results"]):
             self.display.exit("API: unable to retrieve book chapters.")
 
-        response = response.json()
-
-        if not isinstance(response, dict) or len(response.keys()) == 1:
-            self.display.exit(self.display.api_error(response))
-
-        if "results" not in response or not len(response["results"]):
-            self.display.exit("API: unable to retrieve book chapters.")
-
-        if response["count"] > sys.getrecursionlimit():
-            sys.setrecursionlimit(response["count"])
+        if response_data["count"] > sys.getrecursionlimit():
+            sys.setrecursionlimit(response_data["count"])
 
         result = []
         result.extend(
-            [c for c in response["results"] if "cover" in c["filename"] or "cover" in c["title"]]
+            [
+                c
+                for c in response_data["results"]
+                if "cover" in c["filename"] or "cover" in c["title"]
+            ]
         )
         for c in result:
-            del response["results"][response["results"].index(c)]
+            del response_data["results"][response_data["results"].index(c)]
 
-        result += response["results"]
-        return result + (self.get_book_chapters(page + 1) if response["next"] else [])
+        result += response_data["results"]
+        return result + (self.get_book_chapters(page + 1) if response_data["next"] else [])
 
-    def get_default_cover(self):
+    def get_default_cover(self) -> str | bool:
         response = self.requests_provider(self.book_info["cover"], stream=True)
-        if response == 0:
+        if response is None:
             self.display.error("Error trying to retrieve the cover: %s" % self.book_info["cover"])
             return False
 
@@ -627,13 +724,22 @@ class SafariBooks:
 
         return "default_cover." + file_ext
 
-    def get_html(self, url):
+    def get_html(self, url: str) -> html.HtmlElement | None:
+        """Fetch and parse HTML from URL.
+
+        Args:
+            url: URL to fetch
+
+        Returns:
+            Parsed HTML element tree, or None if parsing failed
+        """
         response = self.requests_provider(url)
-        if response == 0 or response.status_code != 200:
+        if response is None or response.status_code != 200:
             self.display.exit(
                 "Crawler: error trying to retrieve this page: %s (%s)\n    From: %s"
                 % (self.filename, self.chapter_title, url)
             )
+        assert response is not None  # display.exit calls sys.exit
 
         root = None
         try:
@@ -649,7 +755,7 @@ class SafariBooks:
         return root
 
     @staticmethod
-    def url_is_absolute(url):
+    def url_is_absolute(url: str) -> bool:
         """Check if URL is absolute (has a network location/domain).
 
         Args:
@@ -661,7 +767,7 @@ class SafariBooks:
         return bool(urlparse(url).netloc)
 
     @staticmethod
-    def is_image_link(url: str):
+    def is_image_link(url: str) -> bool:
         """Check if URL points to an image file based on extension.
 
         Args:
@@ -672,7 +778,7 @@ class SafariBooks:
         """
         return pathlib.Path(url).suffix[1:].lower() in ["jpg", "jpeg", "png", "gif"]
 
-    def link_replace(self, link):
+    def link_replace(self, link: str | None) -> str | None:
         """Replace and transform links for EPUB format.
 
         Transforms HTML links to XHTML format and reorganizes image paths.
@@ -703,7 +809,7 @@ class SafariBooks:
         return link
 
     @staticmethod
-    def get_cover(html_root):
+    def get_cover(html_root: html.HtmlElement) -> html.HtmlElement | None:
         """Extract cover image element from HTML.
 
         Searches for cover image using case-insensitive matching on multiple attributes.
@@ -747,10 +853,10 @@ class SafariBooks:
 
         return None
 
-    def parse_html(self, root, first_page=False):
+    def parse_html(self, root: html.HtmlElement, first_page: bool = False) -> tuple[str, str]:
         if random() > 0.8:
             if len(root.xpath("//div[@class='controls']/a/text()")):
-                self.display.exit(self.display.api_error(" "))
+                self.display.exit(self.display.api_error({}))
 
         book_content = root.xpath("//div[@id='sbo-rt-content']")
         if not len(book_content):
@@ -797,7 +903,9 @@ class SafariBooks:
                     del css.attrib["data-template"]
 
                 try:
-                    page_css += html.tostring(css, method="xml", encoding="unicode") + "\n"
+                    # encoding="unicode" returns str according to updated lxml stubs
+                    css_str: str = html.tostring(css, method="xml", encoding="unicode")
+                    page_css += css_str + "\n"
 
                 except (html.etree.ParseError, html.etree.ParserError) as parsing_error:
                     self.display.error(parsing_error)
@@ -822,7 +930,7 @@ class SafariBooks:
         book_content = book_content[0]
         book_content.rewrite_links(self.link_replace)
 
-        xhtml = None
+        xhtml_str: str = ""  # Will be set in try block
         try:
             if first_page:
                 is_cover = self.get_cover(book_content)
@@ -843,7 +951,8 @@ class SafariBooks:
 
                     self.cover = is_cover.attrib["src"]
 
-            xhtml = html.tostring(book_content, method="xml", encoding="unicode")
+            # encoding="unicode" returns str according to updated lxml stubs
+            xhtml_str = html.tostring(book_content, method="xml", encoding="unicode")
 
         except (html.etree.ParseError, html.etree.ParserError) as parsing_error:
             self.display.error(parsing_error)
@@ -852,10 +961,11 @@ class SafariBooks:
                 % (self.filename, self.chapter_title)
             )
 
-        return page_css, xhtml
+        assert xhtml_str is not None  # tostring always returns str or display.exit() calls sys.exit
+        return page_css, xhtml_str
 
     @staticmethod
-    def escape_dirname(dirname, clean_space=False):
+    def escape_dirname(dirname: str, clean_space: bool = False) -> str:
         """Sanitize directory name by removing or replacing illegal characters.
 
         Makes directory names safe for filesystems by:
@@ -902,7 +1012,7 @@ class SafariBooks:
 
         return dirname if not clean_space else dirname.replace(" ", "")
 
-    def create_dirs(self):
+    def create_dirs(self) -> None:
         if os.path.isdir(self.BOOK_PATH):
             self.logger.info("Book directory already exists: %s" % self.BOOK_PATH)
 
@@ -930,13 +1040,13 @@ class SafariBooks:
             os.makedirs(self.images_path)
             self.display.images_ad_info.value = 1
 
-    def save_page_html(self, contents):
+    def save_page_html(self, contents: tuple[str, str]) -> None:
         self.filename = self.filename.replace(".html", ".xhtml")
         open(os.path.join(self.BOOK_PATH, "OEBPS", self.filename), "wb").write(
             self.BASE_HTML.format(contents[0], contents[1]).encode("utf-8", "xmlcharrefreplace")
         )
 
-    def get(self):
+    def get(self) -> None:
         len_books = len(self.book_chapters)
 
         for _ in range(len_books):
@@ -999,7 +1109,7 @@ class SafariBooks:
 
             self.display.state(len_books, len_books - len(self.chapters_queue))
 
-    def _thread_download_css(self, url):
+    def _thread_download_css(self, url: str) -> None:
         css_file = os.path.join(self.css_path, f"Style{self.css.index(url):0>2}.css")
         if os.path.isfile(css_file):
             if not self.display.css_ad_info.value and url not in self.css[: self.css.index(url)]:
@@ -1016,18 +1126,18 @@ class SafariBooks:
 
         else:
             response = self.requests_provider(url)
-            if response == 0:
+            if response is None:
                 self.display.error(
                     "Error trying to retrieve this CSS: %s\n    From: %s" % (css_file, url)
                 )
-
-            with open(css_file, "wb") as s:
-                s.write(response.content)
+            else:
+                with open(css_file, "wb") as s:
+                    s.write(response.content)
 
         self.css_done_queue.put(1)
         self.display.state(len(self.css), self.css_done_queue.qsize())
 
-    def _thread_download_images(self, url):
+    def _thread_download_images(self, url: str) -> None:
         image_name = url.split("/")[-1]
         image_path = os.path.join(self.images_path, image_name)
         if os.path.isfile(image_path):
@@ -1048,7 +1158,7 @@ class SafariBooks:
 
         else:
             response = self.requests_provider(urljoin(SAFARI_BASE_URL, url), stream=True)
-            if response == 0:
+            if response is None:
                 self.display.error(
                     "Error trying to retrieve this image: %s\n    From: %s" % (image_name, url)
                 )
@@ -1061,7 +1171,7 @@ class SafariBooks:
         self.images_done_queue.put(1)
         self.display.state(len(self.images), self.images_done_queue.qsize())
 
-    def _start_multiprocessing(self, operation, full_queue):
+    def _start_multiprocessing(self, operation: Any, full_queue: list[str]) -> None:
         if len(full_queue) > 5:
             for i in range(0, len(full_queue), 5):
                 self._start_multiprocessing(operation, full_queue[i : i + 5])
@@ -1074,14 +1184,14 @@ class SafariBooks:
             for proc in process_queue:
                 proc.join()
 
-    def collect_css(self):
+    def collect_css(self) -> None:
         self.display.state_status.value = -1
 
         # "self._start_multiprocessing" seems to cause problem. Switching to mono-thread download.
         for css_url in self.css:
             self._thread_download_css(css_url)
 
-    def collect_images(self):
+    def collect_images(self) -> None:
         if self.display.book_ad_info == 2:
             self.logger.info(
                 "Some of the book contents were already downloaded.\n"
@@ -1097,7 +1207,7 @@ class SafariBooks:
         for image_url in self.images:
             self._thread_download_images(image_url)
 
-    def create_content_opf(self):
+    def create_content_opf(self) -> str:
         self.css = next(os.walk(self.css_path))[2]
         self.images = next(os.walk(self.images_path))[2]
 
@@ -1118,7 +1228,7 @@ class SafariBooks:
             head = "img_" + escape("".join(dot_split[:-1]))
             extension = dot_split[-1]
             # Add properties="cover-image" for the cover image (EPUB 3)
-            is_cover = self.cover and i in self.cover
+            is_cover = isinstance(self.cover, str) and i in self.cover
             properties_attr = ' properties="cover-image"' if is_cover else ""
             manifest.append(
                 '<item id="{0}" href="Images/{1}" media-type="image/{2}"{3} />'.format(
@@ -1126,9 +1236,9 @@ class SafariBooks:
                 )
             )
 
-        for i in range(len(self.css)):
+        for css_idx in range(len(self.css)):
             manifest.append(
-                f'<item id="style_{i:0>2}" href="Styles/Style{i:0>2}.css" media-type="text/css" />'
+                f'<item id="style_{css_idx:0>2}" href="Styles/Style{css_idx:0>2}.css" media-type="text/css" />'
             )
 
         authors = "\n".join(
@@ -1161,7 +1271,7 @@ class SafariBooks:
         )
 
     @staticmethod
-    def parse_toc(l, c=0, mx=0):
+    def parse_toc(l: list[dict[str, Any]], c: int = 0, mx: int = 0) -> tuple[str, int, int]:
         r = ""
         for cc in l:
             c += 1
@@ -1187,7 +1297,7 @@ class SafariBooks:
         return r, c, mx
 
     @staticmethod
-    def parse_nav_toc(toc_list):
+    def parse_nav_toc(toc_list: list[dict[str, Any]]) -> str:
         """Parse TOC data into HTML5 nav list items for EPUB 3."""
         result = ""
         for item in toc_list:
@@ -1200,33 +1310,36 @@ class SafariBooks:
                 result += f'<li><a href="{href}">{label}</a></li>\n'
         return result
 
-    def create_nav_xhtml(self, toc_data):
+    def create_nav_xhtml(self, toc_data: list[dict[str, Any]]) -> str:
         """Create the EPUB 3 navigation document (nav.xhtml)."""
         nav_items = self.parse_nav_toc(toc_data)
         return self.NAV_XHTML.format(escape(self.book_title), nav_items)
 
-    def _fetch_toc_data(self):
+    def _fetch_toc_data(self) -> list[dict[str, Any]]:
         """Fetch TOC data from API."""
         response = self.requests_provider(urljoin(self.api_url, "toc/"))
-        if response == 0:
+        if response is None:
             self.display.exit(
                 "API: unable to retrieve book chapters. "
                 "Don't delete any files, just run again this program"
                 " in order to complete the `.epub` creation!"
             )
+        assert response is not None  # display.exit calls sys.exit
 
-        toc_data = response.json()
+        toc_data_raw: Any = response.json()
 
-        if not isinstance(toc_data, list) and len(toc_data.keys()) == 1:
+        if not isinstance(toc_data_raw, list) and len(toc_data_raw.keys()) == 1:
             self.display.exit(
-                self.display.api_error(toc_data)
+                self.display.api_error(toc_data_raw)
                 + " Don't delete any files, just run again this program"
                 " in order to complete the `.epub` creation!"
             )
 
+        # Type narrowing: after the check above, toc_data_raw must be a list
+        toc_data: list[dict[str, Any]] = toc_data_raw
         return toc_data
 
-    def create_toc(self, toc_data=None):
+    def create_toc(self, toc_data: list[dict[str, Any]] | None = None) -> str:
         """Create the NCX table of contents."""
         if toc_data is None:
             toc_data = self._fetch_toc_data()
@@ -1240,7 +1353,7 @@ class SafariBooks:
             navmap,
         )
 
-    def _create_epub_zip(self, epub_path):
+    def _create_epub_zip(self, epub_path: str) -> None:
         """
         Create EPUB ZIP file with proper structure per EPUB 3.3 spec.
 
@@ -1270,7 +1383,7 @@ class SafariBooks:
                     # Use DEFLATED compression for all other files
                     epub.write(file_path, arcname, compress_type=zipfile.ZIP_DEFLATED)
 
-    def create_epub(self):
+    def create_epub(self) -> None:
         open(os.path.join(self.BOOK_PATH, "mimetype"), "w").write("application/epub+zip")
         meta_info = os.path.join(self.BOOK_PATH, "META-INF")
         if os.path.isdir(meta_info):

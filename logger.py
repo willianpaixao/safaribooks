@@ -37,8 +37,15 @@ class ColoredFormatter(logging.Formatter):
         logging.CRITICAL: "[!]",
     }
 
-    def format(self, record):
-        """Format the log record with colors and prefixes."""
+    def format(self, record: logging.LogRecord) -> str:
+        """Format the log record with colors and prefixes.
+
+        Args:
+            record: The log record to format
+
+        Returns:
+            Formatted log message string with colors
+        """
         # Get color and prefix for the log level
         color = self.LEVEL_COLORS.get(record.levelno, self.SH_DEFAULT)
         prefix = self.LEVEL_PREFIXES.get(record.levelno, "[?]")
@@ -122,6 +129,10 @@ def set_log_level(level: str, logger_name: str = "SafariBooks") -> None:
         handler.setLevel(numeric_level)
 
 
-def get_valid_log_levels() -> list:
-    """Return a list of valid log level names."""
+def get_valid_log_levels() -> list[str]:
+    """Return a list of valid log level names.
+
+    Returns:
+        List of valid logging level names
+    """
     return ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
