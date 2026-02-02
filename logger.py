@@ -1,10 +1,10 @@
-#!/usr/bin/env python3
 """
 Logging configuration module for SafariBooks downloader.
 """
 
 import logging
 import sys
+from typing import ClassVar
 
 
 class ColoredFormatter(logging.Formatter):
@@ -20,7 +20,7 @@ class ColoredFormatter(logging.Formatter):
     SH_GREEN = "\033[32m" if "win" not in sys.platform else ""
 
     # Level to color mapping
-    LEVEL_COLORS = {
+    LEVEL_COLORS: ClassVar[dict[int, str]] = {
         logging.DEBUG: SH_BLUE,
         logging.INFO: SH_YELLOW,
         logging.WARNING: SH_BG_YELLOW,
@@ -29,7 +29,7 @@ class ColoredFormatter(logging.Formatter):
     }
 
     # Level to prefix mapping
-    LEVEL_PREFIXES = {
+    LEVEL_PREFIXES: ClassVar[dict[int, str]] = {
         logging.DEBUG: "[D]",
         logging.INFO: "[*]",
         logging.WARNING: "[-]",
