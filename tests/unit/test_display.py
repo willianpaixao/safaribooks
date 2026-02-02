@@ -19,7 +19,7 @@ class TestDisplayInitialization:
     def test_display_requires_book_id(self):
         """Test that Display requires a book_id parameter."""
         with pytest.raises(TypeError):
-            Display()  # Should fail without book_id
+            Display()  # type: ignore[call-arg]  # Should fail without book_id
 
     def test_display_stores_book_id(self):
         """Test that Display stores the book_id."""

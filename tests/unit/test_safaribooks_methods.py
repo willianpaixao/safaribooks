@@ -3,7 +3,7 @@
 from unittest.mock import Mock, patch
 
 import pytest
-from lxml import html
+from bs4 import BeautifulSoup
 
 
 # Mock the get_logger to avoid initialization issues
@@ -45,6 +45,25 @@ def mock_safaribooks_instance(tmp_path, mock_logger):
     instance.url_is_absolute = SafariBooks.url_is_absolute
     instance.is_image_link = SafariBooks.is_image_link
 
+    # Bind helper methods extracted from parse_html refactoring
+    instance._check_anti_bot_detection = SafariBooks._check_anti_bot_detection.__get__(
+        instance, SafariBooks
+    )
+    instance._extract_book_content = SafariBooks._extract_book_content.__get__(
+        instance, SafariBooks
+    )
+    instance._process_css_stylesheets = SafariBooks._process_css_stylesheets.__get__(
+        instance, SafariBooks
+    )
+    instance._process_svg_images = SafariBooks._process_svg_images.__get__(instance, SafariBooks)
+    instance._create_cover_page = SafariBooks._create_cover_page.__get__(instance, SafariBooks)
+    instance._rewrite_links_in_soup = SafariBooks._rewrite_links_in_soup.__get__(
+        instance, SafariBooks
+    )
+    instance._fix_image_dimensions = SafariBooks._fix_image_dimensions.__get__(
+        instance, SafariBooks
+    )
+
     return instance
 
 
@@ -63,7 +82,7 @@ class TestParseHtmlMethod:
             </body>
         </html>
         """
-        root = html.fromstring(html_content)
+        root = BeautifulSoup(html_content, "lxml")
 
         page_css, xhtml = mock_safaribooks_instance.parse_html(root, first_page=False)
 
@@ -85,7 +104,7 @@ class TestParseHtmlMethod:
             </body>
         </html>
         """
-        root = html.fromstring(html_content)
+        root = BeautifulSoup(html_content, "lxml")
 
         page_css, xhtml = mock_safaribooks_instance.parse_html(root)
 
@@ -107,7 +126,7 @@ class TestParseHtmlMethod:
             </body>
         </html>
         """
-        root = html.fromstring(html_content)
+        root = BeautifulSoup(html_content, "lxml")
 
         page_css, xhtml = mock_safaribooks_instance.parse_html(root)
 
@@ -128,7 +147,7 @@ class TestParseHtmlMethod:
             </body>
         </html>
         """
-        root = html.fromstring(html_content)
+        root = BeautifulSoup(html_content, "lxml")
 
         page_css, xhtml = mock_safaribooks_instance.parse_html(root)
 
@@ -143,7 +162,7 @@ class TestParseHtmlMethod:
             </body>
         </html>
         """
-        root = html.fromstring(html_content)
+        root = BeautifulSoup(html_content, "lxml")
 
         with pytest.raises(SystemExit):
             mock_safaribooks_instance.parse_html(root)
@@ -161,7 +180,7 @@ class TestParseHtmlMethod:
             </body>
         </html>
         """
-        root = html.fromstring(html_content)
+        root = BeautifulSoup(html_content, "lxml")
 
         page_css, xhtml = mock_safaribooks_instance.parse_html(root, first_page=True)
 
@@ -180,7 +199,7 @@ class TestParseHtmlMethod:
             </body>
         </html>
         """
-        root = html.fromstring(html_content)
+        root = BeautifulSoup(html_content, "lxml")
 
         page_css, xhtml = mock_safaribooks_instance.parse_html(root, first_page=True)
 
@@ -207,7 +226,7 @@ class TestParseHtmlMethod:
             </body>
         </html>
         """
-        root = html.fromstring(html_content)
+        root = BeautifulSoup(html_content, "lxml")
 
         page_css, xhtml = mock_safaribooks_instance.parse_html(root)
 
@@ -230,7 +249,7 @@ class TestParseHtmlMethod:
             </body>
         </html>
         """
-        root = html.fromstring(html_content)
+        root = BeautifulSoup(html_content, "lxml")
 
         # Should convert SVG image to img tag
         page_css, xhtml = mock_safaribooks_instance.parse_html(root)
@@ -247,79 +266,79 @@ class TestGetCoverMethod:
         from safaribooks import SafariBooks
 
         html_content = '<div><img id="cover" src="cover.jpg"/></div>'
-        root = html.fromstring(html_content)
+        root = BeautifulSoup(html_content, "lxml")
 
         result = SafariBooks.get_cover(root)
 
         assert result is not None
-        assert result.attrib["src"] == "cover.jpg"
+        assert result["src"] == "cover.jpg"
 
     def test_get_cover_by_class(self):
         """Test finding cover by class name."""
         from safaribooks import SafariBooks
 
         html_content = '<div><img class="book-cover" src="cover.jpg"/></div>'
-        root = html.fromstring(html_content)
+        root = BeautifulSoup(html_content, "lxml")
 
         result = SafariBooks.get_cover(root)
 
         assert result is not None
-        assert result.attrib["src"] == "cover.jpg"
+        assert result["src"] == "cover.jpg"
 
     def test_get_cover_by_alt_text(self):
         """Test finding cover by alt text."""
         from safaribooks import SafariBooks
 
         html_content = '<div><img src="cover.jpg" alt="Cover Image"/></div>'
-        root = html.fromstring(html_content)
+        root = BeautifulSoup(html_content, "lxml")
 
         result = SafariBooks.get_cover(root)
 
         assert result is not None
-        assert result.attrib["src"] == "cover.jpg"
+        assert result["src"] == "cover.jpg"
 
     def test_get_cover_inside_div(self):
         """Test finding cover image inside a div with cover class."""
         from safaribooks import SafariBooks
 
         html_content = '<div class="cover-container"><img src="cover.jpg"/></div>'
-        root = html.fromstring(html_content)
+        root = BeautifulSoup(html_content, "lxml")
 
         result = SafariBooks.get_cover(root)
 
         assert result is not None
-        assert result.attrib["src"] == "cover.jpg"
+        assert result["src"] == "cover.jpg"
 
     def test_get_cover_inside_link(self):
         """Test finding cover image inside a link with cover class."""
         from safaribooks import SafariBooks
 
         html_content = '<a class="cover-link"><img src="cover.jpg"/></a>'
-        root = html.fromstring(html_content)
+        root = BeautifulSoup(html_content, "lxml")
 
         result = SafariBooks.get_cover(root)
 
         assert result is not None
-        assert result.attrib["src"] == "cover.jpg"
+        assert result["src"] == "cover.jpg"
 
     def test_get_cover_case_insensitive(self):
         """Test that cover detection is case-insensitive."""
         from safaribooks import SafariBooks
 
         html_content = '<div><img id="COVER-IMAGE" src="cover.jpg"/></div>'
-        root = html.fromstring(html_content)
+        root = BeautifulSoup(html_content, "lxml")
 
         result = SafariBooks.get_cover(root)
 
         assert result is not None
-        assert result.attrib["src"] == "cover.jpg"
+        assert result["src"] == "cover.jpg"
 
     def test_get_cover_not_found(self):
         """Test when no cover image is found."""
         from safaribooks import SafariBooks
 
         html_content = '<div><img id="regular-image" src="image.jpg"/></div>'
-        root = html.fromstring(html_content)
+        root = BeautifulSoup(html_content, "lxml")
 
         result = SafariBooks.get_cover(root)
 

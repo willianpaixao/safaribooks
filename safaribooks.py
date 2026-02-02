@@ -16,7 +16,7 @@ from typing import Any, ClassVar
 from urllib.parse import parse_qs, quote_plus, urljoin, urlparse
 
 import requests
-from lxml import etree, html
+from bs4 import BeautifulSoup
 
 from logger import get_logger, get_valid_log_levels, setup_logger
 
@@ -163,8 +163,10 @@ class Display:
         if not desc:
             return "n/d"
         try:
-            return str(html.fromstring(desc).text_content())
-        except (html.etree.ParseError, html.etree.ParserError) as e:
+            soup = BeautifulSoup(desc, "lxml")
+            text = soup.get_text()
+            return str(text)
+        except Exception as e:
             logger = get_logger("SafariBooks")
             logger.debug(f"Error parsing the description: {e}")
             return "n/d"
@@ -294,6 +296,7 @@ class SafariBooks:
         '<style type="text/css">'
         "body{{margin:1em;background-color:transparent!important;}}"
         "#sbo-rt-content *{{text-indent:0pt!important;}}#sbo-rt-content .bq{{margin-right:1em!important;}}"
+        "img{{max-width:100%;max-height:100%;height:auto;width:auto;}}"
     )
 
     KINDLE_HTML = (
@@ -380,30 +383,18 @@ class SafariBooks:
 
     COOKIE_FLOAT_MAX_AGE_PATTERN = re.compile(r"(max-age=\d*\.\d*)", re.IGNORECASE)
 
-    def __init__(self, args: argparse.Namespace) -> None:
-        """Initialize SafariBooks downloader.
-
-        Args:
-            args: Parsed command-line arguments
-        """
-        self.args = args
-        self.logger = get_logger("SafariBooks")
-        self.display = Display(args.bookid)
-
-        # Show welcome message
-        self.logger.info("** Welcome to SafariBooks! **")
-        self.display.intro()
-
+    def _setup_session(self) -> None:
+        """Set up the requests session with headers and proxy settings."""
         self.session = requests.Session()
         if USE_PROXY:  # DEBUG
             self.session.proxies = PROXIES
             self.session.verify = False
-
         self.session.headers.update(self.HEADERS)
-
         self.jwt: dict[str, Any] = {}
 
-        if not args.cred:
+    def _setup_authentication(self) -> None:
+        """Handle user authentication via cookies or login credentials."""
+        if not self.args.cred:
             if not COOKIES_FILE.is_file():
                 self.logger.error(
                     "Login: unable to find `cookies.json` file.\n"
@@ -419,17 +410,18 @@ class SafariBooks:
 
             with COOKIES_FILE.open() as f:
                 self.session.cookies.update(json.load(f))
-
         else:
             self.logger.warning("Logging into Safari Books Online...")
-            self.do_login(*args.cred)
-            if not args.no_cookies:
+            self.do_login(*self.args.cred)
+            if not self.args.no_cookies:
                 with COOKIES_FILE.open("w") as f:
                     json.dump(self.session.cookies.get_dict(), f)
 
         self.check_login()
 
-        self.book_id = args.bookid
+    def _fetch_book_metadata(self) -> None:
+        """Fetch book information and chapter list from API."""
+        self.book_id = self.args.bookid
         self.api_url = self.API_TEMPLATE.format(self.book_id)
 
         self.logger.info("Retrieving book info...")
@@ -438,7 +430,6 @@ class SafariBooks:
 
         self.logger.info("Retrieving book chapters...")
         self.book_chapters = self.get_book_chapters()
-
         self.chapters_queue = self.book_chapters[:]
 
         if len(self.book_chapters) > sys.getrecursionlimit():
@@ -447,6 +438,8 @@ class SafariBooks:
         self.book_title = self.book_info["title"]
         self.base_url = self.book_info["web_url"]
 
+    def _setup_directories(self) -> None:
+        """Create output directories for book content."""
         self.clean_book_title = (
             "".join(self.escape_dirname(self.book_title).split(",")[:2]) + f" ({self.book_id})"
         )
@@ -461,6 +454,8 @@ class SafariBooks:
         self.images_path = ""
         self.create_dirs()
 
+    def _initialize_content_collections(self) -> None:
+        """Initialize collections for tracking chapters, CSS, and images."""
         self.chapter_title = ""
         self.filename = ""
         self.chapter_stylesheets: list[str] = []
@@ -469,15 +464,24 @@ class SafariBooks:
 
         self.logger.warning(f"Downloading book contents... ({len(self.book_chapters)} chapters)")
         self.BASE_HTML = (
-            self.BASE_01_HTML + (self.KINDLE_HTML if not args.kindle else "") + self.BASE_02_HTML
+            self.BASE_01_HTML
+            + (self.KINDLE_HTML if not self.args.kindle else "")
+            + self.BASE_02_HTML
         )
-
         self.cover: bool | str = False
+
+    def _download_book_content(self) -> None:
+        """Download and process all book content (chapters, CSS, images)."""
+        # Download chapters
         self.get()
+
+        # Handle cover if not found in chapters
         if not self.cover:
             self.cover = self.get_default_cover() if "cover" in self.book_info else False
             cover_html = self.parse_html(
-                html.fromstring(f'<div id="sbo-rt-content"><img src="Images/{self.cover}"></div>'),
+                BeautifulSoup(
+                    f'<div id="sbo-rt-content"><img src="Images/{self.cover}"></div>', "lxml"
+                ),
                 True,
             )
 
@@ -488,20 +492,54 @@ class SafariBooks:
             self.filename = self.book_chapters[0]["filename"]
             self.save_page_html(cover_html)
 
+        # Download CSS files
         self.css_done_queue: Queue[int] = Queue(0)  # WinQueue removed - multiprocessing disabled
         self.logger.warning(f"Downloading book CSSs... ({len(self.css)} files)")
         self.collect_css()
+
+        # Download images
         self.images_done_queue: Queue[int] = Queue(0)  # WinQueue removed - multiprocessing disabled
         self.logger.warning(f"Downloading book images... ({len(self.images)} files)")
         self.collect_images()
 
+    def __init__(self, args: argparse.Namespace) -> None:
+        """Initialize SafariBooks downloader.
+
+        Args:
+            args: Parsed command-line arguments
+        """
+        self.args = args
+        self.logger = get_logger("SafariBooks")
+        self.display = Display(args.bookid)
+
+        # Show welcome message
+        self.logger.info("** Welcome to SafariBooks! **")
+        self.display.intro()
+
+        # Setup
+        self._setup_session()
+        self._setup_authentication()
+
+        # Fetch metadata
+        self._fetch_book_metadata()
+
+        # Prepare directories and collections
+        self._setup_directories()
+        self._initialize_content_collections()
+
+        # Download content
+        self._download_book_content()
+
+        # Create EPUB
         self.logger.warning("Creating EPUB file...")
         self.create_epub()
 
+        # Save session cookies
         if not args.no_cookies:
             with COOKIES_FILE.open("w") as f:
                 json.dump(self.session.cookies.get_dict(), f)
 
+        # Completion
         self.logger.info(f"Done: {Path(self.BOOK_PATH) / f'{self.book_id}.epub'}\n\n")
         self.display.unregister()
 
@@ -619,20 +657,23 @@ class SafariBooks:
 
         if response.status_code != HTTP_OK:  # TODO To be reviewed
             try:
-                error_page = html.fromstring(response.text)
-                errors_message = error_page.xpath("//ul[@class='errorlist']//li/text()")
-                recaptcha = error_page.xpath("//div[@class='g-recaptcha']")
+                error_page = BeautifulSoup(response.text, "lxml")
+                error_list = error_page.find("ul", class_="errorlist")
+                errors_message = (
+                    [li.get_text() for li in error_list.find_all("li")] if error_list else []
+                )
+                recaptcha = error_page.find("div", class_="g-recaptcha")
                 messages = (
                     [
                         f"    `{error}`"
                         for error in errors_message
                         if "password" in error or "email" in error
                     ]
-                    if len(errors_message)
+                    if errors_message
                     else []
                 ) + (
                     ["    `ReCaptcha required (wait or do logout from the website).`"]
-                    if len(recaptcha)
+                    if recaptcha
                     else []
                 )
                 self.exit_with_error(
@@ -640,8 +681,8 @@ class SafariBooks:
                     "[*] Details:\n"
                     + "\n".join(messages if messages else ["    Unexpected error!"])
                 )
-            except (html.etree.ParseError, html.etree.ParserError) as parsing_error:
-                self.logger.error(parsing_error)
+            except Exception as parsing_error:
+                self.logger.error(str(parsing_error))
                 self.exit_with_error(
                     "Login: your login went wrong and it encountered in an error"
                     " trying to parse the login details of Safari Books Online. Try again..."
@@ -732,14 +773,14 @@ class SafariBooks:
 
         return f"default_cover.{file_ext}"
 
-    def get_html(self, url: str) -> html.HtmlElement | None:
+    def get_html(self, url: str) -> BeautifulSoup:
         """Fetch and parse HTML from URL.
 
         Args:
             url: URL to fetch
 
         Returns:
-            Parsed HTML element tree, or None if parsing failed
+            Parsed BeautifulSoup object (exits on error via display.exit())
         """
         response = self.requests_provider(url)
         if response is None or response.status_code != HTTP_OK:
@@ -748,17 +789,18 @@ class SafariBooks:
             )
         assert response is not None  # display.exit calls sys.exit
 
-        root = None
         try:
-            root = html.fromstring(response.text, base_url=SAFARI_BASE_URL)
+            soup = BeautifulSoup(response.text, "lxml")
+            return soup
 
-        except (html.etree.ParseError, html.etree.ParserError) as parsing_error:
-            self.display.error(parsing_error)
+        except Exception as parsing_error:
+            self.display.error(str(parsing_error))
             self.display.exit(
                 f"Crawler: error trying to parse this page: {self.filename} ({self.chapter_title})\n    From: {url}"
             )
-
-        return root
+            # This line is never reached because display.exit() calls sys.exit()
+            # but mypy needs it for type checking
+            raise
 
     @staticmethod
     def url_is_absolute(url: str) -> bool:
@@ -815,62 +857,77 @@ class SafariBooks:
         return link
 
     @staticmethod
-    def get_cover(html_root: html.HtmlElement) -> html.HtmlElement | None:
+    def get_cover(soup: BeautifulSoup) -> Any:
         """Extract cover image element from HTML.
 
         Searches for cover image using case-insensitive matching on multiple attributes.
         Checks img tags directly, then images within divs and links with 'cover' in their attributes.
 
         Args:
-            html_root: lxml HTML element tree to search
+            soup: BeautifulSoup parsed HTML document
 
         Returns:
-            lxml image element if found, None otherwise
+            BeautifulSoup Tag element if found, None otherwise
 
         Note:
             Searches for 'cover' (case-insensitive) in:
             - img id, class, name, src, alt attributes
             - div and link container attributes
         """
-        lowercase_ns = etree.FunctionNamespace(None)
-        lowercase_ns["lower-case"] = lambda _, n: n[0].lower() if n and len(n) else ""
 
-        images = html_root.xpath(
-            "//img[contains(lower-case(@id), 'cover') or contains(lower-case(@class), 'cover') or"
-            "contains(lower-case(@name), 'cover') or contains(lower-case(@src), 'cover') or"
-            "contains(lower-case(@alt), 'cover')]"
-        )
-        if len(images):
-            return images[0]
+        # Helper function to check if 'cover' is in any attribute
+        def has_cover_in_attrs(tag: Any) -> bool:
+            for attr in ["id", "class", "name", "src", "alt"]:
+                value = tag.get(attr)
+                if value:
+                    # Handle both string and list values
+                    values = value if isinstance(value, list) else [value]
+                    if any("cover" in str(v).lower() for v in values):
+                        return True
+            return False
 
-        divs = html_root.xpath(
-            "//div[contains(lower-case(@id), 'cover') or contains(lower-case(@class), 'cover') or"
-            "contains(lower-case(@name), 'cover') or contains(lower-case(@src), 'cover')]//img"
-        )
-        if len(divs):
-            return divs[0]
+        # Try to find img directly with 'cover' in attributes
+        for img in soup.find_all("img"):
+            if has_cover_in_attrs(img):
+                return img
 
-        a = html_root.xpath(
-            "//a[contains(lower-case(@id), 'cover') or contains(lower-case(@class), 'cover') or"
-            "contains(lower-case(@name), 'cover') or contains(lower-case(@src), 'cover')]//img"
-        )
-        if len(a):
-            return a[0]
+        # Try to find img within div with 'cover' in attributes
+        for div in soup.find_all("div"):
+            if has_cover_in_attrs(div):
+                found_img = div.find("img")
+                if found_img is not None:
+                    return found_img
+
+        # Try to find img within link with 'cover' in attributes
+        for link in soup.find_all("a"):
+            if has_cover_in_attrs(link):
+                found_img = link.find("img")
+                if found_img is not None:
+                    return found_img
 
         return None
 
-    def parse_html(self, root: html.HtmlElement, first_page: bool = False) -> tuple[str, str]:
+    def _check_anti_bot_detection(self, soup: BeautifulSoup) -> None:
+        """Check for anti-bot detection and exit if detected."""
         if random() > ANTI_BOT_CHECK_THRESHOLD:
-            if len(root.xpath("//div[@class='controls']/a/text()")):
+            controls_div = soup.find("div", class_="controls")
+            if controls_div and controls_div.find("a"):
                 self.display.exit(self.display.api_error({}))
 
-        book_content = root.xpath("//div[@id='sbo-rt-content']")
-        if not len(book_content):
+    def _extract_book_content(self, soup: BeautifulSoup) -> Any:
+        """Extract the main book content from the page."""
+        book_content = soup.find(id="sbo-rt-content")
+        if not book_content:
             self.display.exit(
                 f"Parser: book content's corrupted or not present: {self.filename} ({self.chapter_title})"
             )
+        return book_content
 
+    def _process_css_stylesheets(self, soup: BeautifulSoup) -> str:
+        """Process all CSS stylesheets and return page CSS HTML."""
         page_css = ""
+
+        # Process chapter stylesheets
         if len(self.chapter_stylesheets):
             for chapter_css_url in self.chapter_stylesheets:
                 if chapter_css_url not in self.css:
@@ -882,13 +939,16 @@ class SafariBooks:
                     'rel="stylesheet" type="text/css" />\n'
                 )
 
-        stylesheet_links = root.xpath("//link[@rel='stylesheet']")
-        if len(stylesheet_links):
+        # Process stylesheet links
+        stylesheet_links = soup.find_all("link", rel="stylesheet")
+        if stylesheet_links:
             for s in stylesheet_links:
+                href = s.get("href")
+                if not href or not isinstance(href, str):
+                    continue
+
                 css_url = (
-                    urljoin("https:", s.attrib["href"])
-                    if s.attrib["href"][:2] == "//"
-                    else urljoin(self.base_url, s.attrib["href"])
+                    urljoin("https:", href) if href[:2] == "//" else urljoin(self.base_url, href)
                 )
 
                 if css_url not in self.css:
@@ -900,71 +960,166 @@ class SafariBooks:
                     'rel="stylesheet" type="text/css" />\n'
                 )
 
-        stylesheets = root.xpath("//style")
-        if len(stylesheets):
+        # Process inline styles
+        stylesheets = soup.find_all("style")
+        if stylesheets:
             for css in stylesheets:
-                if "data-template" in css.attrib and len(css.attrib["data-template"]):
-                    css.text = css.attrib["data-template"]
-                    del css.attrib["data-template"]
+                data_template = css.get("data-template")
+                if data_template and isinstance(data_template, str):
+                    css.string = data_template
+                    del css["data-template"]
 
                 try:
-                    # encoding="unicode" returns str according to updated lxml stubs
-                    css_str: str = html.tostring(css, method="xml", encoding="unicode")
+                    css_str = str(css)
                     page_css += css_str + "\n"
-
-                except (html.etree.ParseError, html.etree.ParserError) as parsing_error:
-                    self.display.error(parsing_error)
+                except Exception as parsing_error:
+                    self.display.error(str(parsing_error))
                     self.display.exit(
                         f"Parser: error trying to parse one CSS found in this page: {self.filename} ({self.chapter_title})"
                     )
 
-        # TODO: add all not covered tag for `link_replace` function
-        svg_image_tags = root.xpath("//image")
-        if len(svg_image_tags):
+        return page_css
+
+    def _process_svg_images(self, soup: BeautifulSoup) -> None:
+        """Convert SVG image tags to regular img tags."""
+        svg_image_tags = soup.find_all("image")
+        if svg_image_tags:
             for img in svg_image_tags:
-                image_attr_href = [x for x in img.attrib.keys() if "href" in x]
-                if image_attr_href:
-                    svg_url = img.attrib.get(image_attr_href[0])
-                    svg_root = img.getparent().getparent()
-                    new_img = svg_root.makeelement("img")
-                    new_img.attrib.update({"src": svg_url})
-                    svg_root.remove(img.getparent())
-                    svg_root.append(new_img)
+                # Find href attribute (could be href, xlink:href, etc.)
+                href = img.get("href") or img.get("xlink:href")
+                if href and isinstance(href, str):
+                    # Get the SVG parent element
+                    svg_parent = img.find_parent("g")
+                    if svg_parent:
+                        svg_root = svg_parent.find_parent()
+                        if svg_root:
+                            # Create new img tag
+                            new_img = soup.new_tag("img", src=href)
+                            # Replace the structure
+                            svg_parent.decompose()
+                            svg_root.append(new_img)
 
-        book_content = book_content[0]
-        book_content.rewrite_links(self.link_replace)
+    def _rewrite_links_in_soup(self, soup: Any) -> None:
+        """Rewrite all links in BeautifulSoup object using link_replace."""
+        # Process all anchor tags
+        for tag in soup.find_all("a", href=True):
+            tag["href"] = self.link_replace(tag["href"])
 
-        xhtml_str: str = ""  # Will be set in try block
+        # Process all img tags
+        for tag in soup.find_all("img", src=True):
+            tag["src"] = self.link_replace(tag["src"])
+
+        # Process all link tags (CSS, etc.)
+        for tag in soup.find_all("link", href=True):
+            tag["href"] = self.link_replace(tag["href"])
+
+    def _fix_image_dimensions(self, soup: Any) -> None:
+        """Remove inline width/height attributes and styles from images.
+
+        O'Reilly's HTML often includes inline width/height attributes or styles
+        that override CSS and cause images to overflow the viewport. This method
+        removes those attributes to allow our CSS max-width/max-height rules to work.
+        """
+        for img in soup.find_all("img"):
+            # Remove width and height attributes
+            if img.get("width"):
+                del img["width"]
+            if img.get("height"):
+                del img["height"]
+
+            # Remove or clean up style attribute if it contains width/height
+            style = img.get("style")
+            if style and isinstance(style, str):
+                # Remove width and height from inline styles
+                style_parts = [s.strip() for s in style.split(";") if s.strip()]
+                cleaned_parts = [
+                    part
+                    for part in style_parts
+                    if not part.lower().startswith(("width:", "height:", "width ", "height "))
+                ]
+                if cleaned_parts:
+                    img["style"] = "; ".join(cleaned_parts)
+                else:
+                    del img["style"]
+
+    def _create_cover_page(self, book_content: Any) -> tuple[str, Any]:
+        """Create a cover page if cover image is found."""
+        # Get the soup object to search in
+        search_soup = (
+            book_content
+            if isinstance(book_content, BeautifulSoup)
+            else BeautifulSoup(str(book_content), "lxml")
+        )
+        is_cover = self.get_cover(search_soup)
+
+        if is_cover is not None:
+            page_css = (
+                "<style>"
+                "body{display:table;position:absolute;margin:0!important;height:100%;width:100%;}"
+                "#Cover{display:table-cell;vertical-align:middle;text-align:center;}"
+                "#Cover img{max-height:90vh;max-width:90vw;height:auto;width:auto;margin-left:auto;margin-right:auto;}"
+                "</style>"
+            )
+            # Create a new cover div
+            cover_soup = BeautifulSoup('<div id="Cover"></div>', "lxml")
+            cover_div = cover_soup.find("div", id="Cover")
+
+            if cover_div is not None:
+                # Create img tag and append to cover div
+                cover_src = is_cover.get("src")
+                if cover_src and isinstance(cover_src, str):
+                    cover_img = cover_soup.new_tag("img", src=cover_src)
+                    cover_div.append(cover_img)
+                    self.cover = cover_src
+                    return page_css, cover_div
+
+        return "", book_content
+
+    def parse_html(self, soup: BeautifulSoup, first_page: bool = False) -> tuple[str, str]:
+        """Parse HTML content and extract book content with CSS.
+
+        Args:
+            soup: BeautifulSoup parsed HTML document
+            first_page: If True, process as cover page
+
+        Returns:
+            Tuple of (page_css, xhtml_content)
+        """
+        # Check for anti-bot detection
+        self._check_anti_bot_detection(soup)
+
+        # Extract main book content
+        book_content = self._extract_book_content(soup)
+
+        # Process CSS stylesheets
+        page_css = self._process_css_stylesheets(soup)
+
+        # Process SVG images
+        self._process_svg_images(soup)
+
+        # Fix image dimensions (remove inline width/height that override CSS)
+        self._fix_image_dimensions(book_content)
+
+        # Rewrite links
+        self._rewrite_links_in_soup(book_content)
+
+        # Handle cover page or regular content
+        xhtml_str: str = ""
         try:
             if first_page:
-                is_cover = self.get_cover(book_content)
-                if is_cover is not None:
-                    page_css = (
-                        "<style>"
-                        "body{display:table;position:absolute;margin:0!important;height:100%;width:100%;}"
-                        "#Cover{display:table-cell;vertical-align:middle;text-align:center;}"
-                        "img{height:90vh;margin-left:auto;margin-right:auto;}"
-                        "</style>"
-                    )
-                    cover_html = html.fromstring('<div id="Cover"></div>')
-                    cover_div = cover_html.xpath("//div")[0]
-                    cover_img = cover_div.makeelement("img")
-                    cover_img.attrib.update({"src": is_cover.attrib["src"]})
-                    cover_div.append(cover_img)
-                    book_content = cover_html
+                cover_css, book_content = self._create_cover_page(book_content)
+                if cover_css:  # Cover was found and created
+                    page_css = cover_css
 
-                    self.cover = is_cover.attrib["src"]
+            xhtml_str = str(book_content)
 
-            # encoding="unicode" returns str according to updated lxml stubs
-            xhtml_str = html.tostring(book_content, method="xml", encoding="unicode")
-
-        except (html.etree.ParseError, html.etree.ParserError) as parsing_error:
-            self.display.error(parsing_error)
+        except Exception as parsing_error:
+            self.display.error(str(parsing_error))
             self.display.exit(
                 f"Parser: error trying to parse HTML of this page: {self.filename} ({self.chapter_title})"
             )
 
-        assert xhtml_str is not None  # tostring always returns str or display.exit() calls sys.exit
+        assert xhtml_str is not None  # str() always returns str or display.exit() calls sys.exit
         return page_css, xhtml_str
 
     @staticmethod

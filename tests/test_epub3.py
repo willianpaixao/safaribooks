@@ -93,7 +93,7 @@ class TestParseNavToc:
 
     def test_empty_toc(self):
         """Test parsing an empty TOC list."""
-        toc_data = []
+        toc_data: list[dict[str, str]] = []
         result = SafariBooks.parse_nav_toc(toc_data)
         assert result == ""
 
