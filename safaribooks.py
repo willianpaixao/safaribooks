@@ -338,7 +338,7 @@ class SafariBooks:
         '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav" />\n'
         "{9}\n"
         "</manifest>\n"
-        "<spine>\n{10}</spine>\n"
+        '<spine toc="ncx">\n{10}</spine>\n'
         '<guide><reference href="{11}" title="Cover" type="cover" /></guide>\n'
         "</package>"
     )
@@ -373,15 +373,15 @@ class SafariBooks:
     )
 
     HEADERS: ClassVar[dict[str, str]] = {
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Encoding": "gzip, deflate",
+        "User-Agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:147.0) Gecko/20100101 Firefox/147.0",
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
         "Referer": LOGIN_ENTRY_URL,
-        "Upgrade-Insecure-Requests": "1",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/90.0.4430.212 Safari/537.36",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
     }
-
-    COOKIE_FLOAT_MAX_AGE_PATTERN = re.compile(r"(max-age=\d*\.\d*)", re.IGNORECASE)
 
     def _setup_session(self) -> None:
         """Set up the requests session with headers and proxy settings."""
@@ -558,13 +558,6 @@ class SafariBooks:
         self.display.save_last_request()
         sys.exit(1)
 
-    def handle_cookie_update(self, set_cookie_headers: list[str]) -> None:
-        for morsel in set_cookie_headers:
-            # Handle Float 'max-age' Cookie
-            if self.COOKIE_FLOAT_MAX_AGE_PATTERN.search(morsel):
-                cookie_key, cookie_value = morsel.split(";")[0].split("=")
-                self.session.cookies.set(cookie_key, cookie_value)
-
     def requests_provider(
         self,
         url: str,
@@ -577,8 +570,6 @@ class SafariBooks:
             response: requests.Response = getattr(self.session, "post" if is_post else "get")(
                 url, data=data, allow_redirects=False, **kwargs
             )
-
-            self.handle_cookie_update(response.raw.headers.getlist("Set-Cookie"))
 
             self.display.last_request = (
                 url,
@@ -1013,6 +1004,74 @@ class SafariBooks:
         for tag in soup.find_all("link", href=True):
             tag["href"] = self.link_replace(tag["href"])
 
+    def _fix_index_terms(self, soup: Any) -> None:
+        """Fix index term anchors to be valid EPUB navigation targets.
+
+        Index terms are marked with empty <a> tags that have data-type="indexterm"
+        and an ID attribute. Many EPUB readers cannot navigate to these empty
+        inline anchors, resulting in "no block found" errors.
+
+        Strategy:
+        1. If parent block has no ID and contains only one index term,
+           move the ID to the parent element
+        2. Otherwise, wrap the anchor in a <span> with the ID
+
+        Args:
+            soup: BeautifulSoup object containing the chapter content
+        """
+        # Find all index term markers
+        index_terms = soup.find_all("a", {"data-type": "indexterm"})
+
+        for term in index_terms:
+            term_id = term.get("id")
+            if not term_id:
+                # No ID to fix
+                continue
+
+            # Find the nearest block-level parent element
+            parent = term.find_parent(["p", "li", "td", "dd", "dt", "div", "section", "blockquote"])
+            if not parent:
+                # No suitable parent found, leave as-is
+                self.logger.debug(f"No block parent found for index term {term_id}")
+                continue
+
+            # Check if we can safely move ID to parent
+            parent_id = parent.get("id")
+            sibling_index_terms = parent.find_all("a", {"data-type": "indexterm"})
+
+            if not parent_id and len(sibling_index_terms) == 1:
+                # Safe to move ID to parent - only one index term and no existing ID
+                parent["id"] = term_id
+                self.logger.debug(f"Moved index term ID {term_id} to parent {parent.name}")
+
+                # Remove ID from anchor since it's now on parent
+                del term["id"]
+
+            else:
+                # Not safe to move to parent - wrap in span instead
+                # This handles cases where:
+                # - Parent already has an ID
+                # - Multiple index terms in same paragraph
+
+                # Get the root soup object to create new tags
+                # Navigate up to find the BeautifulSoup root
+                root_soup = term
+                while root_soup.parent is not None:
+                    root_soup = root_soup.parent
+
+                wrapper = root_soup.new_tag("span", id=term_id)
+                term.wrap(wrapper)
+
+                # Remove ID from anchor since it's now on wrapper
+                if term.get("id"):
+                    del term["id"]
+
+                self.logger.debug(
+                    f"Wrapped index term {term_id} in span "
+                    f"(parent has ID: {bool(parent_id)}, "
+                    f"siblings: {len(sibling_index_terms)})"
+                )
+
     def _fix_image_dimensions(self, soup: Any) -> None:
         """Remove inline width/height attributes and styles from images.
 
@@ -1102,6 +1161,9 @@ class SafariBooks:
 
         # Rewrite links
         self._rewrite_links_in_soup(book_content)
+
+        # Fix index term anchors for EPUB reader compatibility
+        self._fix_index_terms(book_content)
 
         # Handle cover page or regular content
         xhtml_str: str = ""

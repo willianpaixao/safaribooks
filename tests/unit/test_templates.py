@@ -51,8 +51,10 @@ class TestEPUBTemplates:
     def test_content_opf_has_spine(self):
         """Test that CONTENT_OPF has spine section."""
         content_opf = SafariBooks.CONTENT_OPF
-        assert "<spine>" in content_opf
+        assert "<spine" in content_opf
         assert "</spine>" in content_opf
+        # Verify spine has toc attribute for NCX backward compatibility
+        assert 'toc="ncx"' in content_opf
 
     def test_toc_ncx_template_exists(self):
         """Test that TOC_NCX template exists."""

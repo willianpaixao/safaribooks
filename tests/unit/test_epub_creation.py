@@ -173,6 +173,18 @@ class TestCreateContentOpf:
         # Spine should reference the chapter IDs
         assert "chapter01" in result or "ch01" in result
 
+    def test_create_content_opf_spine_has_toc_attribute(self, mock_safaribooks_for_epub):
+        """Test that spine element has toc attribute pointing to NCX."""
+        from safaribooks import SafariBooks
+
+        # Ensure CSS files exist
+        Path(mock_safaribooks_for_epub.css_path).joinpath("Style00.css").touch()
+
+        result = mock_safaribooks_for_epub.create_content_opf()
+
+        # Check spine has toc="ncx" attribute for backward compatibility
+        assert '<spine toc="ncx">' in result
+
 
 class TestParseToc:
     """Test the parse_toc() static method."""
@@ -309,6 +321,79 @@ class TestCreateToc:
 
         assert "<docTitle>" in result
         assert "<text>Test Book Title</text>" in result
+
+    def test_index_terms_have_valid_targets(self, mock_safaribooks_for_epub):
+        """Test that all index terms become valid navigation targets after parse_html."""
+        from bs4 import BeautifulSoup
+        from safaribooks import SafariBooks
+
+        # Create a real instance for parse_html
+        instance = SafariBooks.__new__(SafariBooks)
+        instance.logger = __import__("logging").getLogger("test")
+        instance.css = []
+        instance.images = []
+        instance.chapter_stylesheets = []
+        instance.book_id = "9781234567890"
+        instance.filename = "test.html"
+        instance.chapter_title = "Test Chapter"
+        instance.base_url = "https://learning.oreilly.com"
+
+        # Create a mock display object
+        instance.display = Mock()
+        instance.display.book_ad_info = False
+
+        # Bind the method
+        instance.parse_html = SafariBooks.parse_html.__get__(instance, SafariBooks)
+        instance._check_anti_bot_detection = SafariBooks._check_anti_bot_detection.__get__(
+            instance, SafariBooks
+        )
+        instance._extract_book_content = SafariBooks._extract_book_content.__get__(
+            instance, SafariBooks
+        )
+        instance._process_css_stylesheets = SafariBooks._process_css_stylesheets.__get__(
+            instance, SafariBooks
+        )
+        instance._process_svg_images = SafariBooks._process_svg_images.__get__(
+            instance, SafariBooks
+        )
+        instance._fix_image_dimensions = SafariBooks._fix_image_dimensions.__get__(
+            instance, SafariBooks
+        )
+        instance._rewrite_links_in_soup = SafariBooks._rewrite_links_in_soup.__get__(
+            instance, SafariBooks
+        )
+        instance._fix_index_terms = SafariBooks._fix_index_terms.__get__(instance, SafariBooks)
+        instance._create_cover_page = SafariBooks._create_cover_page.__get__(instance, SafariBooks)
+        instance.link_replace = SafariBooks.link_replace.__get__(instance, SafariBooks)
+        instance.url_is_absolute = SafariBooks.url_is_absolute
+        instance.is_image_link = SafariBooks.is_image_link
+        instance.get_cover = SafariBooks.get_cover
+
+        # Create HTML with various index term scenarios
+        html = """
+        <html><body>
+        <div id="sbo-rt-content">
+            <p>Single term<a data-type="indexterm" id="id001"></a></p>
+            <p>Multiple<a data-type="indexterm" id="id002"></a> terms<a data-type="indexterm" id="id003"></a></p>
+            <p id="existing">Has ID<a data-type="indexterm" id="id004"></a></p>
+        </div>
+        </body></html>
+        """
+        soup = BeautifulSoup(html, "lxml")
+
+        # Process through parse_html
+        css, xhtml = instance.parse_html(soup)
+
+        # Parse result
+        result_soup = BeautifulSoup(xhtml, "lxml")
+
+        # Verify all IDs are on block or span elements
+        for test_id in ["id001", "id002", "id003", "id004"]:
+            element = result_soup.find(id=test_id)
+            assert element is not None, f"{test_id} should exist"
+            assert element.name in ["p", "span"], (
+                f"{test_id} should be on block/span, not {element.name}"
+            )
 
 
 class TestConstants:
