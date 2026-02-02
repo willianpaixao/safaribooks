@@ -11,13 +11,13 @@ class ColoredFormatter(logging.Formatter):
     """A custom formatter that adds colors to log messages."""
 
     # Color codes for different platforms
-    SH_DEFAULT = "\033[0m" if "win" not in sys.platform else ""
-    SH_YELLOW = "\033[33m" if "win" not in sys.platform else ""
-    SH_RED = "\033[31m" if "win" not in sys.platform else ""
-    SH_BG_RED = "\033[41m" if "win" not in sys.platform else ""
-    SH_BG_YELLOW = "\033[43m" if "win" not in sys.platform else ""
-    SH_BLUE = "\033[34m" if "win" not in sys.platform else ""
-    SH_GREEN = "\033[32m" if "win" not in sys.platform else ""
+    SH_DEFAULT = "\033[0m" if not sys.platform.startswith("win") else ""
+    SH_YELLOW = "\033[33m" if not sys.platform.startswith("win") else ""
+    SH_RED = "\033[31m" if not sys.platform.startswith("win") else ""
+    SH_BG_RED = "\033[41m" if not sys.platform.startswith("win") else ""
+    SH_BG_YELLOW = "\033[43m" if not sys.platform.startswith("win") else ""
+    SH_BLUE = "\033[34m" if not sys.platform.startswith("win") else ""
+    SH_GREEN = "\033[32m" if not sys.platform.startswith("win") else ""
 
     # Level to color mapping
     LEVEL_COLORS: ClassVar[dict[int, str]] = {

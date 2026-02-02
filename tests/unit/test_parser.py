@@ -62,8 +62,15 @@ class TestEscapeDirname:
 
     def test_escape_special_characters(self):
         """Test that special characters are replaced with underscores."""
+        import sys
+
         result = SafariBooks.escape_dirname("Test: File <Name>")
-        assert result == "Test_ File _Name_"
+
+        # On Windows, early colons are replaced with commas; on other platforms with underscores
+        if sys.platform.startswith("win"):
+            assert result == "Test, File _Name_"
+        else:
+            assert result == "Test_ File _Name_"
 
     def test_escape_forward_slash(self):
         """Test that forward slashes are escaped."""

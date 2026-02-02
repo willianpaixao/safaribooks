@@ -51,10 +51,10 @@ PROXIES = {"https": "https://127.0.0.1:8080"}
 class Display:
     """Display class for handling user interface and logging."""
 
-    SH_DEFAULT = "\033[0m" if "win" not in sys.platform else ""
-    SH_YELLOW = "\033[33m" if "win" not in sys.platform else ""
-    SH_BG_RED = "\033[41m" if "win" not in sys.platform else ""
-    SH_BG_YELLOW = "\033[43m" if "win" not in sys.platform else ""
+    SH_DEFAULT = "\033[0m" if not sys.platform.startswith("win") else ""
+    SH_YELLOW = "\033[33m" if not sys.platform.startswith("win") else ""
+    SH_BG_RED = "\033[41m" if not sys.platform.startswith("win") else ""
+    SH_BG_YELLOW = "\033[43m" if not sys.platform.startswith("win") else ""
 
     def __init__(self, book_id: str):
         self.output_dir = ""
@@ -986,9 +986,9 @@ class SafariBooks:
         if ":" in dirname:
             if dirname.index(":") > 15:
                 dirname = dirname.split(":")[0]
-
-            elif "win" in sys.platform:
+            elif sys.platform.startswith("win"):
                 dirname = dirname.replace(":", ",")
+            # On non-Windows platforms, colon will be replaced with underscore in the loop below
 
         for ch in [
             "~",
