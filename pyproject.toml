@@ -103,7 +103,10 @@ ignore = [
     "PLR0913",  # Too many arguments (will fix in Phase 3)
     "PLR2004",  # Magic values (will fix in Phase 3)
     "T201",     # print() allowed for now (will remove in Phase 3)
-    "ERA001",   # Commented code allowed during refactoring
+    "ARG002",   # Unused method arguments (exception handlers)
+    "RUF005",   # Iterable unpacking (minor optimization)
+    "RET504",   # Assignment before return (readability preference)
+    "UP030",    # Format field references (will fix in Phase 3 with Jinja2)
 ]
 
 [tool.ruff.lint.per-file-ignores]

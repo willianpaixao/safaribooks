@@ -175,7 +175,6 @@ class TestCreateContentOpf:
 
     def test_create_content_opf_spine_has_toc_attribute(self, mock_safaribooks_for_epub):
         """Test that spine element has toc attribute pointing to NCX."""
-        from safaribooks import SafariBooks
 
         # Ensure CSS files exist
         Path(mock_safaribooks_for_epub.css_path).joinpath("Style00.css").touch()
@@ -325,6 +324,7 @@ class TestCreateToc:
     def test_index_terms_have_valid_targets(self, mock_safaribooks_for_epub):
         """Test that all index terms become valid navigation targets after parse_html."""
         from bs4 import BeautifulSoup
+
         from safaribooks import SafariBooks
 
         # Create a real instance for parse_html

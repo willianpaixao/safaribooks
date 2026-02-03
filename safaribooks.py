@@ -2,7 +2,6 @@
 import argparse
 import json
 import os
-import re
 import shutil
 import sys
 import traceback
@@ -111,10 +110,9 @@ class Display:
         """Save information about the last request for debugging."""
         logger = get_logger("SafariBooks")
         if any(self.last_request):
+            url, data, others, status, headers, text = self.last_request
             logger.debug(
-                "Last request done:\n\tURL: {0}\n\tDATA: {1}\n\tOTHERS: {2}\n\n\t{3}\n{4}\n\n{5}\n".format(
-                    *self.last_request
-                )
+                f"Last request done:\n\tURL: {url}\n\tDATA: {data}\n\tOTHERS: {others}\n\n\t{status}\n{headers}\n\n{text}\n"
             )
 
     def intro(self) -> None:
@@ -142,13 +140,12 @@ class Display:
         Args:
             put: Message to output (string or bytes)
         """
-        pattern = "\r{!s}\r{!s}\n"
         try:
             # If put is bytes, decode it
             decoded = put.decode("utf-8", "replace") if isinstance(put, bytes) else put
-            s = pattern.format(" " * self.columns, decoded)
+            s = f"\r{' ' * self.columns}\r{decoded}\n"
         except (TypeError, AttributeError):
-            s = pattern.format(" " * self.columns, put)
+            s = f"\r{' ' * self.columns}\r{put!s}\n"
         sys.stdout.write(s)
 
     def parse_description(self, desc: str | None) -> str:
@@ -422,7 +419,7 @@ class SafariBooks:
     def _fetch_book_metadata(self) -> None:
         """Fetch book information and chapter list from API."""
         self.book_id = self.args.bookid
-        self.api_url = self.API_TEMPLATE.format(self.book_id)
+        self.api_url = f"https://api.oreilly.com/api/v1/book/{self.book_id}/"
 
         self.logger.info("Retrieving book info...")
         self.book_info = self.get_book_info()
@@ -576,7 +573,7 @@ class SafariBooks:
                 data,
                 kwargs,
                 response.status_code,
-                "\n".join(["\t{}: {}".format(*h) for h in response.headers.items()]),
+                "\n".join([f"\t{name}: {value}" for name, value in response.headers.items()]),
                 response.text,
             )
 
@@ -1478,30 +1475,34 @@ class SafariBooks:
         )
 
     @staticmethod
-    def parse_toc(l: list[dict[str, Any]], c: int = 0, mx: int = 0) -> tuple[str, int, int]:
-        r = ""
-        for cc in l:
-            c += 1
-            mx = max(mx, int(cc["depth"]))
+    def parse_toc(
+        toc_list: list[dict[str, Any]], count: int = 0, max_count: int = 0
+    ) -> tuple[str, int, int]:
+        result = ""
+        for item in toc_list:
+            count += 1
+            max_count = max(max_count, int(item["depth"]))
 
-            r += (
-                '<navPoint id="{0}" playOrder="{1}">'
-                "<navLabel><text>{2}</text></navLabel>"
-                '<content src="{3}"/>'.format(
-                    cc["fragment"] if len(cc["fragment"]) else cc["id"],
-                    c,
-                    escape(cc["label"]),
-                    cc["href"].replace(".html", ".xhtml").split("/")[-1],
+            result += (
+                '<navPoint id="{}" playOrder="{}">'
+                "<navLabel><text>{}</text></navLabel>"
+                '<content src="{}"/>'.format(
+                    item["fragment"] if len(item["fragment"]) else item["id"],
+                    count,
+                    escape(item["label"]),
+                    item["href"].replace(".html", ".xhtml").split("/")[-1],
                 )
             )
 
-            if cc["children"]:
-                sr, c, mx = SafariBooks.parse_toc(cc["children"], c, mx)
-                r += sr
+            if item["children"]:
+                sub_result, count, max_count = SafariBooks.parse_toc(
+                    item["children"], count, max_count
+                )
+                result += sub_result
 
-            r += "</navPoint>\n"
+            result += "</navPoint>\n"
 
-        return r, c, mx
+        return result, count, max_count
 
     @staticmethod
     def parse_nav_toc(toc_list: list[dict[str, Any]]) -> str:
@@ -1695,26 +1696,6 @@ if __name__ == "__main__":
             "    See: https://github.com/willianpaixao/safaribooks/issues/358"
         )
         arguments.exit()
-
-        # user_email = ""
-        # pre_cred = ""
-
-        # if args_parsed.cred:
-        #     pre_cred = args_parsed.cred
-
-        # else:
-        #     user_email = input("Email: ")
-        #     passwd = getpass.getpass("Password: ")
-        #     pre_cred = user_email + ":" + passwd
-
-        # parsed_cred = SafariBooks.parse_cred(pre_cred)
-
-        # if not parsed_cred:
-        #     arguments.error("invalid credential: %s" % (
-        #         args_parsed.cred if args_parsed.cred else (user_email + ":*******")
-        #     ))
-
-        # args_parsed.cred = parsed_cred
 
     elif args_parsed.no_cookies:
         arguments.error(
