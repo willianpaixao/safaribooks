@@ -4,21 +4,20 @@ build-backend = "hatchling.build"
 
 [project]
 name = "safaribooks"
-version = "2.0.0-alpha.1"
+version = "2.0.0"
 description = "Download and generate EPUB files from O'Reilly Safari Books Online"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = {text = "GPLv3"}
 authors = [
-    {name = "Lorenzo Di Fuccia"},
-    {name = "Willian Paixao", email = "willian@paixao.net"},
+    {name = "Willian Paixao"},
 ]
 keywords = ["oreilly", "safari", "books", "epub", "downloader"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
@@ -28,8 +27,10 @@ classifiers = [
 
 dependencies = [
     "beautifulsoup4>=4.14.3,<5.0.0",
+    "click>=8.3.1",
     "lxml>=6.0.2,<7.0.0",
     "requests>=2.32.5,<3.0.0",
+    "rich>=14.3.1",
 ]
 
 [project.optional-dependencies]
@@ -39,20 +40,20 @@ development = [
     "types-requests>=2.32.4.20260107",
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
-    "pytest-xdist>=3.8.0",  # Parallel test execution
-    "pytest-mock>=3.15.1",  # Mocking support
-    "responses>=0.25.8",    # HTTP request mocking
+    "pytest-xdist>=3.8.0",
+    "pytest-mock>=3.15.1",
+    "pytest-asyncio>=1.3.0",
+    "respx>=0.22.0",
+    "responses>=0.25.8",
     "pre-commit>=4.5.1",
 ]
 
 future = [
-    "httpx>=0.28.1",      # Modern async HTTP client
-    "pydantic>=2.12.5",    # Data validation
+    "httpx>=0.28.1",
+    "pydantic>=2.12.5",
     "pydantic-settings>=2.12.0",
-    "rich>=14.3.1",       # Beautiful terminal output
-    "click>=8.3.1",       # Modern CLI framework
-    "jinja2>=3.1.6",      # Template engine for EPUB
-    "tenacity>=9.1.2",    # Retry logic
+    "jinja2>=3.1.6",
+    "tenacity>=9.1.2",
 ]
 
 [project.urls]
@@ -61,7 +62,7 @@ Repository = "https://github.com/lorenzodifuccia/safaribooks"
 Issues = "https://github.com/lorenzodifuccia/safaribooks/issues"
 
 [project.scripts]
-safaribooks = "safaribooks:main"
+safaribooks = "src.safaribooks.cli.commands:cli"
 
 [tool.ruff]
 target-version = "py311"
@@ -115,12 +116,18 @@ ignore = [
     "S101",     # Use of assert
     "ARG",      # Unused arguments (fixtures)
     "PLR0913",  # Too many arguments
+    "PLC0415",  # Import outside top-level (needed for dynamic test imports)
+]
+
+"src/safaribooks/client/http.py" = [
+    "TID252",   # Relative imports required (absolute 'safaribooks' collides with safaribooks.py)
 ]
 
 "safaribooks.py" = [
     "PLR0912",  # Too many branches
     "PLR0915",  # Too many statements
     "C901",     # Too complex
+    "SIM105",   # Use contextlib.suppress (prefer explicit try/except in __del__)
 ]
 
 [tool.ruff.lint.isort]
@@ -128,13 +135,14 @@ known-first-party = ["safaribooks"]
 lines-after-imports = 2
 
 [tool.ruff.lint.mccabe]
-max-complexity = 15  # Will reduce to 10 in Phase 3
+max-complexity = 15
 
 [tool.ruff.format]
-line-ending = "lf"  # Enforce Unix line endings for consistency
+line-ending = "lf"
 
 [tool.mypy]
 python_version = "3.11"
+exclude = ["^safaribooks\\.py$"]
 disallow_untyped_defs = true
 disallow_any_generics = true
 warn_return_any = true
@@ -178,13 +186,15 @@ addopts = [
     "-v",               # Verbose output
 ]
 
-# Coverage options (will enable in Phase 1)
+# Coverage options (enabled in Phase 3)
+# Uncomment to enable coverage reporting:
 # addopts = [
-#     "--cov=safaribooks",
+#     "--cov=src/safaribooks",  # New package location
+#     "--cov=safaribooks.py",   # Old monolithic file
 #     "--cov-report=term-missing",
 #     "--cov-report=html",
 #     "--cov-report=xml",
-#     "--cov-fail-under=60",  # Start with 60%, increase to 80%
+#     # "--cov-fail-under=30",  # Current baseline ~30%
 # ]
 
 markers = [
@@ -194,13 +204,18 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["safaribooks"]
+source = [
+    ".",
+]
 omit = [
     "*/tests/*",
     "*/__pycache__/*",
     "*/site-packages/*",
     "*/venv/*",
     "*/.venv/*",
+    "logger.py",
+    "retrieve_cookies.py",
+    ".venv-old/*",
 ]
 
 [tool.coverage.report]

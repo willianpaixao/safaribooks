@@ -1,6 +1,8 @@
 """Unit tests for logger module."""
 
 import logging
+import tempfile
+from pathlib import Path
 
 from logger import (
     ColoredFormatter,
@@ -90,16 +92,77 @@ class TestSetupLogger:
         logger = setup_logger("TestHandler")
         assert len(logger.handlers) > 0
 
-    def test_setup_logger_uses_colored_formatter(self):
-        """Test that setup_logger uses ColoredFormatter."""
-        logger = setup_logger("TestFormatter")
-        assert len(logger.handlers) > 0
-        assert isinstance(logger.handlers[0].formatter, ColoredFormatter)
+    def test_setup_logger_without_log_file_uses_null_handler(self):
+        """Test that setup_logger without log_file uses NullHandler."""
+        logger = setup_logger("TestNullHandler")
+        assert len(logger.handlers) == 1
+        assert isinstance(logger.handlers[0], logging.NullHandler)
 
     def test_setup_logger_default_level_is_info(self):
         """Test that setup_logger defaults to INFO level."""
         logger = setup_logger("TestDefaultLevel")
         assert logger.level == logging.INFO
+
+
+class TestSetupLoggerWithFile:
+    """Tests for setup_logger with log_file parameter."""
+
+    def test_setup_logger_with_log_file_creates_file_handler(self):
+        """Test that setup_logger with log_file uses FileHandler."""
+        with tempfile.NamedTemporaryFile(suffix=".log", delete=False) as f:
+            log_path = f.name
+        logger = setup_logger("TestFileHandler", log_file=log_path)
+        try:
+            assert len(logger.handlers) == 1
+            assert isinstance(logger.handlers[0], logging.FileHandler)
+        finally:
+            # Close handler before removing file
+            for h in logger.handlers[:]:
+                h.close()
+                logger.removeHandler(h)
+            Path(log_path).unlink()
+
+    def test_setup_logger_with_log_file_writes_messages(self):
+        """Test that log messages are written to the log file."""
+        with tempfile.NamedTemporaryFile(suffix=".log", delete=False) as f:
+            log_path = f.name
+        logger = setup_logger("TestFileWrite", "DEBUG", log_file=log_path)
+        try:
+            logger.info("hello from test")
+            # Flush handlers
+            for h in logger.handlers:
+                h.flush()
+            with Path(log_path).open(encoding="utf-8") as fh:
+                content = fh.read()
+            assert "hello from test" in content
+        finally:
+            for h in logger.handlers[:]:
+                h.close()
+                logger.removeHandler(h)
+            Path(log_path).unlink()
+
+    def test_setup_logger_with_log_file_creates_nonexistent_file(self):
+        """Test that setup_logger creates a log file if it doesn't exist."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = str(Path(tmpdir) / "new.log")
+            assert not Path(log_path).exists()
+            logger = setup_logger("TestCreateFile", log_file=log_path)
+            logger.info("creating file")
+            for h in logger.handlers:
+                h.flush()
+            assert Path(log_path).exists()
+            # Cleanup
+            for h in logger.handlers[:]:
+                h.close()
+                logger.removeHandler(h)
+
+    def test_setup_logger_without_log_file_discards_messages(self):
+        """Test that without log_file, messages are discarded (NullHandler)."""
+        logger = setup_logger("TestDiscard")
+        assert len(logger.handlers) == 1
+        assert isinstance(logger.handlers[0], logging.NullHandler)
+        # This should not raise or produce any output
+        logger.info("this message should be discarded")
 
 
 class TestSetLogLevel:
@@ -113,10 +176,18 @@ class TestSetLogLevel:
 
     def test_set_log_level_updates_handlers(self):
         """Test that set_log_level updates handler levels."""
-        logger = setup_logger("TestHandlerLevel", "INFO")
-        set_log_level("WARNING", "TestHandlerLevel")
-        for handler in logger.handlers:
-            assert handler.level == logging.WARNING
+        with tempfile.NamedTemporaryFile(suffix=".log", delete=False) as f:
+            log_path = f.name
+        logger = setup_logger("TestHandlerLevel", "INFO", log_file=log_path)
+        try:
+            set_log_level("WARNING", "TestHandlerLevel")
+            for handler in logger.handlers:
+                assert handler.level == logging.WARNING
+        finally:
+            for h in logger.handlers[:]:
+                h.close()
+                logger.removeHandler(h)
+            Path(log_path).unlink()
 
 
 class TestGetValidLogLevels:

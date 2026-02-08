@@ -16,7 +16,8 @@ class TestEPUBTemplates:
         """Test that NAV_XHTML contains format placeholders."""
         nav_xhtml = SafariBooks.NAV_XHTML
         # Should have placeholders for formatting
-        assert "{" in nav_xhtml and "}" in nav_xhtml
+        assert "{" in nav_xhtml
+        assert "}" in nav_xhtml
 
     def test_nav_xhtml_is_valid_xml_structure(self):
         """Test that NAV_XHTML has basic XML structure."""

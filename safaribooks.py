@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, quote_plus, urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from logger import get_logger, get_valid_log_levels, setup_logger
+from logger import get_logger
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -46,6 +46,8 @@ ANTI_BOT_CHECK_THRESHOLD = 0.8
 USE_PROXY = False
 PROXIES = {"https": "https://127.0.0.1:8080"}
 
+from src.safaribooks.display import RichDisplay  # noqa: E402
+
 
 class Display:
     """Display class for handling user interface and logging."""
@@ -55,10 +57,11 @@ class Display:
     SH_BG_RED = "\033[41m" if not sys.platform.startswith("win") else ""
     SH_BG_YELLOW = "\033[43m" if not sys.platform.startswith("win") else ""
 
-    def __init__(self, book_id: str):
+    def __init__(self, book_id: str, quiet: bool = False):
         self.output_dir = ""
         self.output_dir_set = False
         self.book_id = book_id
+        self.quiet = quiet
         self.columns, _ = shutil.get_terminal_size()
 
         # Allow dynamic assignment of these attributes
@@ -78,8 +81,9 @@ class Display:
         Args:
             output_dir: Path to the output directory
         """
-        logger = get_logger("SafariBooks")
-        logger.info(f"Output directory:\n    {output_dir}")
+        if not self.quiet:
+            logger = get_logger("SafariBooks")
+            logger.debug(f"Output directory: {output_dir}")
         self.output_dir = output_dir
         self.output_dir_set = True
 
@@ -117,6 +121,9 @@ class Display:
 
     def intro(self) -> None:
         """Display the program intro."""
+        if self.quiet:
+            return
+
         output = (
             self.SH_YELLOW
             + (
@@ -140,6 +147,9 @@ class Display:
         Args:
             put: Message to output (string or bytes)
         """
+        if self.quiet:
+            return
+
         try:
             # If put is bytes, decode it
             decoded = put.decode("utf-8", "replace") if isinstance(put, bytes) else put
@@ -174,6 +184,9 @@ class Display:
         Args:
             info: Dictionary containing book metadata
         """
+        if self.quiet:
+            return
+
         logger = get_logger("SafariBooks")
         description = self.parse_description(info.get("description")).replace("\n", " ")
         for t in [
@@ -196,6 +209,9 @@ class Display:
             origin: Total number of items
             done: Number of completed items
         """
+        if self.quiet:
+            return
+
         progress = int(done * 100 / origin)
         bar = int(progress * (self.columns - 11) / 100)
         if self.state_status.value < progress:
@@ -218,7 +234,8 @@ class Display:
         Args:
             epub_file: Path to the generated EPUB file
         """
-        self.info(f"Done: {epub_file}\n\n")
+        if not self.quiet:
+            self.info(f"Done: {epub_file}\n\n")
 
     def info(self, message: str) -> None:
         """Log an info message.
@@ -226,8 +243,9 @@ class Display:
         Args:
             message: Message to log
         """
-        logger = get_logger("SafariBooks")
-        logger.info(message)
+        if not self.quiet:
+            logger = get_logger("SafariBooks")
+            logger.info(message)
 
     def error(self, message: str) -> None:
         """Log an error message.
@@ -293,7 +311,7 @@ class SafariBooks:
         '<style type="text/css">'
         "body{{margin:1em;background-color:transparent!important;}}"
         "#sbo-rt-content *{{text-indent:0pt!important;}}#sbo-rt-content .bq{{margin-right:1em!important;}}"
-        "img{{max-width:100%;max-height:100%;height:auto;width:auto;}}"
+        "img{{max-width:100%;height:auto;width:auto;}}"
     )
 
     KINDLE_HTML = (
@@ -421,7 +439,7 @@ class SafariBooks:
         self.book_id = self.args.bookid
         self.api_url = f"https://api.oreilly.com/api/v1/book/{self.book_id}/"
 
-        self.logger.info("Retrieving book info...")
+        self.logger.debug("Retrieving book info...")
         self.book_info = self.get_book_info()
         self.display.book_info(self.book_info)
 
@@ -441,9 +459,11 @@ class SafariBooks:
             "".join(self.escape_dirname(self.book_title).split(",")[:2]) + f" ({self.book_id})"
         )
 
-        books_dir = PROJECT_ROOT / "Books"
+        books_dir = Path(getattr(self.args, "output_dir", "Books"))
+        if not books_dir.is_absolute():
+            books_dir = PROJECT_ROOT / books_dir
         if not books_dir.is_dir():
-            books_dir.mkdir()
+            books_dir.mkdir(parents=True)
 
         self.BOOK_PATH = str(books_dir / self.clean_book_title)
         self.display.set_output_dir(self.BOOK_PATH)
@@ -461,9 +481,7 @@ class SafariBooks:
 
         self.logger.warning(f"Downloading book contents... ({len(self.book_chapters)} chapters)")
         self.BASE_HTML = (
-            self.BASE_01_HTML
-            + (self.KINDLE_HTML if not self.args.kindle else "")
-            + self.BASE_02_HTML
+            self.BASE_01_HTML + (self.KINDLE_HTML if self.args.kindle else "") + self.BASE_02_HTML
         )
         self.cover: bool | str = False
 
@@ -507,10 +525,12 @@ class SafariBooks:
         """
         self.args = args
         self.logger = get_logger("SafariBooks")
-        self.display = Display(args.bookid)
 
-        # Show welcome message
-        self.logger.info("** Welcome to SafariBooks! **")
+        # Get quiet flag if present
+        quiet = getattr(args, "quiet", False)
+
+        self.display = RichDisplay(args.bookid, quiet=quiet)
+
         self.display.intro()
 
         # Setup
@@ -539,6 +559,55 @@ class SafariBooks:
         # Completion
         self.logger.info(f"Done: {Path(self.BOOK_PATH) / f'{self.book_id}.epub'}\n\n")
         self.display.unregister()
+
+    def _run_async(self, coro):
+        """Run an async coroutine in sync context."""
+        import asyncio  # noqa: PLC0415
+
+        # Create or reuse persistent event loop for async client operations
+        if (
+            not hasattr(self, "_event_loop")
+            or self._event_loop is None
+            or self._event_loop.is_closed()
+        ):
+            self._event_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._event_loop)
+
+        return self._event_loop.run_until_complete(coro)
+
+    def _ensure_client(self):
+        """Ensure async HTTP client is created and initialized."""
+        if hasattr(self, "_new_client") and self._new_client is not None:
+            return  # Already initialized
+
+        from src.safaribooks.client import SafariBooksClient  # noqa: PLC0415
+        from src.safaribooks.models.config import SafariBooksConfig  # noqa: PLC0415
+
+        # Create configuration
+        config = SafariBooksConfig(
+            base_url=SAFARI_BASE_URL,
+            api_url=API_ORIGIN_URL,
+        )
+
+        # Create and initialize client
+        client = SafariBooksClient(self.session.cookies, config)
+        self._new_client = self._run_async(client.__aenter__())
+
+    def __del__(self):
+        """Cleanup async HTTP client on destruction."""
+        if hasattr(self, "_new_client") and self._new_client is not None:
+            try:
+                self._run_async(self._new_client.__aexit__(None, None, None))
+            except Exception:
+                pass  # Ignore cleanup errors
+
+        # Close event loop if it exists
+        if hasattr(self, "_event_loop") and self._event_loop is not None:
+            try:
+                if not self._event_loop.is_closed():
+                    self._event_loop.close()
+            except Exception:
+                pass  # Ignore cleanup errors
 
     def exit_with_error(self, error_message: str) -> None:
         """Exit the program with an error message."""
@@ -696,70 +765,73 @@ class SafariBooks:
         elif 'user_type":"Expired"' in response.text:
             self.exit_with_error("Authentication issue: account subscription expired.")
 
-        self.logger.warning("Successfully authenticated.")
+        self.logger.debug("Successfully authenticated.")
 
     def get_book_info(self) -> dict[str, Any]:
-        response = self.requests_provider(self.api_url)
-        if response is None:
-            self.exit_with_error("API: unable to retrieve book info.")
-        assert response is not None  # exit_with_error calls sys.exit
-
-        response_data: dict[str, Any] = response.json()
-        if not isinstance(response_data, dict) or len(response_data.keys()) == 1:
-            self.exit_with_error(self.display.api_error(response_data))
-
-        response_data.pop("last_chapter_read", None)
-
-        for key, value in response_data.items():
-            if value is None:
-                response_data[key] = "n/a"
-
-        return response_data
+        self._ensure_client()
+        try:
+            book_info_model = self._run_async(self._new_client.get_book_info(self.book_id))
+            # Convert Pydantic model to dict for compatibility
+            # Use mode='json' to convert HttpUrl to string
+            response_data = book_info_model.model_dump(mode="json")
+            for key, value in response_data.items():
+                if value is None:
+                    response_data[key] = "n/a"
+            return response_data
+        except Exception as e:
+            self.exit_with_error(f"API: unable to retrieve book info. Error: {e}")
 
     def get_book_chapters(self, page: int = 1) -> list[dict[str, Any]]:
-        response = self.requests_provider(urljoin(self.api_url, f"chapter/?page={page}"))
-        if response is None:
-            self.display.exit("API: unable to retrieve book chapters.")
-        assert response is not None  # display.exit calls sys.exit
+        self._ensure_client()
+        try:
+            chapters = self._run_async(self._new_client.get_chapters(self.book_id))
 
-        response_data: Any = response.json()
+            if not chapters:
+                self.display.exit("API: unable to retrieve book chapters.")
 
-        if not isinstance(response_data, dict) or len(response_data.keys()) == 1:
-            self.display.exit(self.display.api_error(response_data))
+            # Sort cover chapters first
+            result = []
+            result.extend(
+                [
+                    c
+                    for c in chapters
+                    if "cover" in c.get("filename", "") or "cover" in c.get("title", "")
+                ]
+            )
+            for c in result:
+                chapters.remove(c)
 
-        if "results" not in response_data or not len(response_data["results"]):
-            self.display.exit("API: unable to retrieve book chapters.")
-
-        if response_data["count"] > sys.getrecursionlimit():
-            sys.setrecursionlimit(response_data["count"])
-
-        result = []
-        result.extend(
-            [
-                c
-                for c in response_data["results"]
-                if "cover" in c["filename"] or "cover" in c["title"]
-            ]
-        )
-        for c in result:
-            del response_data["results"][response_data["results"].index(c)]
-
-        result += response_data["results"]
-        return result + (self.get_book_chapters(page + 1) if response_data["next"] else [])
+            return result + chapters
+        except Exception as e:
+            self.display.exit(f"API: unable to retrieve book chapters. Error: {e}")
 
     def get_default_cover(self) -> str | bool:
-        response = self.requests_provider(self.book_info["cover"], stream=True)
-        if response is None:
-            self.display.error(f"Error trying to retrieve the cover: {self.book_info['cover']}")
+        self._ensure_client()
+        try:
+            cover_url = self.book_info["cover"]
+            cover_url_str = str(cover_url) if not isinstance(cover_url, str) else cover_url
+
+            content = self._run_async(self._new_client.download_content(cover_url_str))
+
+            # Infer file extension from URL or default to jpg
+            file_ext = Path(cover_url_str).suffix.lstrip(".")
+            if not file_ext or file_ext not in SUPPORTED_IMAGE_FORMATS:
+                file_ext = "jpg"  # Default fallback
+
+            cover_file = Path(self.images_path) / f"default_cover.{file_ext}"
+            with cover_file.open("wb") as f:
+                f.write(content)
+
+            return f"default_cover.{file_ext}"
+        except Exception as e:
+            # Extract just the HTTP status if it's a NetworkError
+            error_msg = str(e)
+            if "HTTP error" in error_msg and ":" in error_msg:
+                status = error_msg.split("HTTP error")[1].split(":")[0].strip()
+                self.display.error(f"Error trying to retrieve the cover: HTTP {status}")
+            else:
+                self.display.error(f"Error trying to retrieve the cover: {error_msg}")
             return False
-
-        file_ext = response.headers["Content-Type"].split("/")[-1]
-        cover_file = Path(self.images_path) / f"default_cover.{file_ext}"
-        with cover_file.open("wb") as i:
-            for chunk in response.iter_content(1024):
-                i.write(chunk)
-
-        return f"default_cover.{file_ext}"
 
     def get_html(self, url: str) -> BeautifulSoup:
         """Fetch and parse HTML from URL.
@@ -1141,45 +1213,27 @@ class SafariBooks:
         Returns:
             Tuple of (page_css, xhtml_content)
         """
-        # Check for anti-bot detection
-        self._check_anti_bot_detection(soup)
+        # Use modular parser
+        from src.safaribooks.parser import HTMLParser  # noqa: PLC0415
 
-        # Extract main book content
-        book_content = self._extract_book_content(soup)
-
-        # Process CSS stylesheets
-        page_css = self._process_css_stylesheets(soup)
-
-        # Process SVG images
-        self._process_svg_images(soup)
-
-        # Fix image dimensions (remove inline width/height that override CSS)
-        self._fix_image_dimensions(book_content)
-
-        # Rewrite links
-        self._rewrite_links_in_soup(book_content)
-
-        # Fix index term anchors for EPUB reader compatibility
-        self._fix_index_terms(book_content)
-
-        # Handle cover page or regular content
-        xhtml_str: str = ""
         try:
-            if first_page:
-                cover_css, book_content = self._create_cover_page(book_content)
-                if cover_css:  # Cover was found and created
-                    page_css = cover_css
+            # Create parser instance with current state
+            parser = HTMLParser(
+                book_id=self.book_id,
+                base_url=self.base_url,
+                css_list=self.css,
+                images_list=self.images,
+                chapter_stylesheets=self.chapter_stylesheets,
+            )
 
-            xhtml_str = str(book_content)
+            # Parse and return
+            return parser.parse(soup, first_page=first_page)
 
-        except Exception as parsing_error:
-            self.display.error(str(parsing_error))
+        except (RuntimeError, ValueError) as e:
+            self.display.error(str(e))
             self.display.exit(
                 f"Parser: error trying to parse HTML of this page: {self.filename} ({self.chapter_title})"
             )
-
-        assert xhtml_str is not None  # str() always returns str or display.exit() calls sys.exit
-        return page_css, xhtml_str
 
     @staticmethod
     def escape_dirname(dirname: str, clean_space: bool = False) -> str:
@@ -1323,6 +1377,15 @@ class SafariBooks:
             self.display.state(len_books, len_books - len(self.chapters_queue))
 
     def _thread_download_css(self, url: str) -> None:
+        # Check if this CSS should be excluded (known issues)
+        from src.safaribooks.parser.html import should_exclude_css  # noqa: PLC0415
+
+        if should_exclude_css(url):
+            self.logger.info(f"Skipping problematic CSS file: {url.split('/')[-1]}")
+            self.css_done_queue.put(1)
+            self.display.state(len(self.css), self.css_done_queue.qsize())
+            return
+
         css_file = Path(self.css_path) / f"Style{self.css.index(url):0>2}.css"
         if css_file.is_file():
             if not self.display.css_ad_info.value and url not in self.css[: self.css.index(url)]:
@@ -1340,7 +1403,14 @@ class SafariBooks:
                     f"Error trying to retrieve this CSS: {css_file}\n    From: {url}"
                 )
             else:
-                css_file.write_bytes(response.content)
+                css_content = response.content
+                from src.safaribooks.parser.html import fix_css_content  # noqa: PLC0415
+
+                css_text = css_content.decode("utf-8", errors="ignore")
+                fixed_css = fix_css_content(css_text)
+                css_content = fixed_css.encode("utf-8")
+
+                css_file.write_bytes(css_content)
 
         self.css_done_queue.put(1)
         self.display.state(len(self.css), self.css_done_queue.qsize())
@@ -1593,132 +1663,36 @@ class SafariBooks:
                     epub.write(str(file_path), str(arcname), compress_type=zipfile.ZIP_DEFLATED)
 
     def create_epub(self) -> None:
-        book_path = Path(self.BOOK_PATH)
-        (book_path / "mimetype").write_text("application/epub+zip")
+        """Create EPUB file."""
+        from src.safaribooks.epub.builder import EPUBBuilder  # noqa: PLC0415
 
-        meta_info = book_path / "META-INF"
-        if meta_info.is_dir():
-            self.logger.info(f"META-INF directory already exists: {meta_info}")
-        else:
-            meta_info.mkdir(parents=True)
-
-        (meta_info / "container.xml").write_bytes(
-            self.CONTAINER_XML.encode("utf-8", "xmlcharrefreplace")
-        )
-
-        # Fetch TOC data once for both NCX and nav.xhtml
+        # Fetch TOC data
         toc_data = self._fetch_toc_data()
 
-        oebps = book_path / "OEBPS"
-        (oebps / "content.opf").write_bytes(
-            self.create_content_opf().encode("utf-8", "xmlcharrefreplace")
-        )
-        (oebps / "toc.ncx").write_bytes(
-            self.create_toc(toc_data).encode("utf-8", "xmlcharrefreplace")
-        )
-        # EPUB 3 navigation document
-        (oebps / "nav.xhtml").write_bytes(
-            self.create_nav_xhtml(toc_data).encode("utf-8", "xmlcharrefreplace")
+        # Create builder instance
+        builder = EPUBBuilder(
+            book_id=self.book_id,
+            book_title=self.book_title,
+            book_info=self.book_info,
+            book_chapters=self.book_chapters,
+            book_path=self.BOOK_PATH,
+            css_path=self.css_path,
+            images_path=self.images_path,
+            cover=self.cover,
         )
 
-        epub_path = book_path / f"{self.book_id}.epub"
-        if epub_path.is_file():
-            epub_path.unlink()
-
-        self._create_epub_zip(str(epub_path))
+        # Build EPUB
+        epub_path = builder.build(toc_data)
+        self.logger.info(f"EPUB created: {epub_path}")
 
 
 # MAIN
+def main() -> None:
+    """Main entry point — delegates to the Click-based CLI."""
+    from src.safaribooks.cli.commands import cli  # noqa: PLC0415
+
+    cli()
+
+
 if __name__ == "__main__":
-    arguments = argparse.ArgumentParser(
-        prog="safaribooks.py",
-        description="Download and generate an EPUB of your favorite books"
-        " from Safari Books Online.",
-        add_help=False,
-        allow_abbrev=False,
-    )
-
-    login_arg_group = arguments.add_mutually_exclusive_group()
-    login_arg_group.add_argument(
-        "--cred",
-        metavar="<EMAIL:PASS>",
-        default=False,
-        help="Credentials used to perform the auth login on Safari Books Online."
-        ' Es. ` --cred "account_mail@mail.com:password01" `.',
-    )
-    login_arg_group.add_argument(
-        "--login",
-        action="store_true",
-        help="Prompt for credentials used to perform the auth login on Safari Books Online.",
-    )
-
-    arguments.add_argument(
-        "--no-cookies",
-        dest="no_cookies",
-        action="store_true",
-        help="Prevent your session data to be saved into `cookies.json` file.",
-    )
-    arguments.add_argument(
-        "--kindle",
-        dest="kindle",
-        action="store_true",
-        help="Add some CSS rules that block overflow on `table` and `pre` elements."
-        " Use this option if you're going to export the EPUB to E-Readers like Amazon Kindle.",
-    )
-    arguments.add_argument(
-        "--log-level",
-        dest="log_level",
-        metavar="<LEVEL>",
-        default="INFO",
-        choices=get_valid_log_levels(),
-        help="Set the logging level. Valid levels: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO).",
-    )
-    arguments.add_argument(
-        "--help", action="help", default=argparse.SUPPRESS, help="Show this help message."
-    )
-    arguments.add_argument(
-        "--book-id",
-        dest="bookid",
-        metavar="<BOOK ID>",
-        nargs="+",
-        required=True,
-        help="Book digits ID(s) that you want to download. You can specify multiple book IDs. "
-        "You can find it in the URL (X-es): "
-        "`" + SAFARI_BASE_URL + "/library/view/book-name/XXXXXXXXXXXXX/`",
-    )
-
-    args_parsed = arguments.parse_args()
-    if args_parsed.cred or args_parsed.login:
-        print(
-            "WARNING: Due to recent changes on ORLY website, \n"
-            "the `--cred` and `--login` options are temporarily disabled.\n"
-            "    Please use the `cookies.json` file to authenticate your account.\n"
-            "    See: https://github.com/willianpaixao/safaribooks/issues/358"
-        )
-        arguments.exit()
-
-    elif args_parsed.no_cookies:
-        arguments.error(
-            "invalid option: `--no-cookies` is valid only if you use the `--cred` option"
-        )
-
-    # Set up the main logger with the specified log level
-    setup_logger("SafariBooks", args_parsed.log_level)
-
-    # Set up main logger for processing multiple books
-    main_logger = get_logger("SafariBooks.Main")
-
-    # Process each book ID
-    for book_id in args_parsed.bookid:
-        # Create a copy of args_parsed with the current book_id
-        current_args = argparse.Namespace(**vars(args_parsed))
-        current_args.bookid = book_id
-
-        try:
-            SafariBooks(current_args)
-        except Exception as e:
-            main_logger.error(f"Error processing book {book_id}: {e}")
-            main_logger.info("Continuing with next book...")
-            continue
-
-    sys.exit(0)
+    main()

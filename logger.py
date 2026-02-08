@@ -63,13 +63,22 @@ class ColoredFormatter(logging.Formatter):
         return message
 
 
-def setup_logger(name: str = "SafariBooks", level: str = "INFO") -> logging.Logger:
+def setup_logger(
+    name: str = "SafariBooks",
+    level: str = "INFO",
+    log_file: str | None = None,
+) -> logging.Logger:
     """
     Set up a logger with the specified name and level.
+
+    When log_file is provided, logging output is written to that file.
+    When log_file is None, a NullHandler is used so all log messages
+    are silently discarded.
 
     Args:
         name: The name of the logger
         level: The logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        log_file: Optional path to a log file. If None, logging is disabled.
 
     Returns:
         Configured logger instance
@@ -85,16 +94,21 @@ def setup_logger(name: str = "SafariBooks", level: str = "INFO") -> logging.Logg
     for handler in logger.handlers[:]:
         logger.removeHandler(handler)
 
-    # Create console handler
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(numeric_level)
+    if log_file is not None:
+        # Log to file
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler.setLevel(numeric_level)
 
-    # Create formatter
-    formatter = ColoredFormatter(fmt="[%(asctime)s] %(message)s", datefmt="%d/%b/%Y %H:%M:%S")
-    console_handler.setFormatter(formatter)
+        formatter = logging.Formatter(
+            fmt="[%(asctime)s] %(levelname)s %(name)s: %(message)s",
+            datefmt="%d/%b/%Y %H:%M:%S",
+        )
+        file_handler.setFormatter(formatter)
 
-    # Add handler to logger
-    logger.addHandler(console_handler)
+        logger.addHandler(file_handler)
+    else:
+        # No log file specified — discard all messages
+        logger.addHandler(logging.NullHandler())
 
     return logger
 

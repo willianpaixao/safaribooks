@@ -266,7 +266,7 @@ class TestParseToc:
             },
         ]
 
-        result, count, max_depth = SafariBooks.parse_toc(toc_data)
+        result, _count, _max_depth = SafariBooks.parse_toc(toc_data)
 
         # HTML entities should be escaped
         assert "&lt;" in result or "<" not in result.replace("<navPoint", "").replace(
@@ -382,7 +382,7 @@ class TestCreateToc:
         soup = BeautifulSoup(html, "lxml")
 
         # Process through parse_html
-        css, xhtml = instance.parse_html(soup)
+        _css, xhtml = instance.parse_html(soup)
 
         # Parse result
         result_soup = BeautifulSoup(xhtml, "lxml")

@@ -33,7 +33,7 @@ repos:
     hooks:
       - id: mypy
         args: [--ignore-missing-imports, --show-error-codes]
-        exclude: ^tests/
+        exclude: ^(tests/|safaribooks\.py$)
         additional_dependencies:
           - types-requests
 

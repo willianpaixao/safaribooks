@@ -1,11 +1,58 @@
 """Shared pytest fixtures and configuration for SafariBooks tests."""
 
-import json
-from typing import Any
-from unittest.mock import Mock
+import sys
+from pathlib import Path
 
-import pytest
-import responses
+
+# Add src to path so src/safaribooks subpackages can be found
+project_root = Path(__file__).parent.parent
+src_path = str(project_root / "src")
+sys.path.insert(0, src_path)
+
+# Register the src/safaribooks package under 'safaribooks' in sys.modules
+# so that `from safaribooks.client import ...` resolves to the package.
+# Also load the root safaribooks.py script under 'safaribooks_script' so
+# tests can import Display and SafariBooks from it.
+import importlib  # noqa: E402
+import importlib.util  # noqa: E402
+
+
+# Load the script module under a different name to avoid collision
+_script_path = project_root / "safaribooks.py"
+_spec = importlib.util.spec_from_file_location("safaribooks_script", _script_path)
+if _spec and _spec.loader:
+    _script_mod = importlib.util.module_from_spec(_spec)
+    sys.modules["safaribooks_script"] = _script_mod
+    _spec.loader.exec_module(_script_mod)
+
+# Now ensure the package is loaded as 'safaribooks'
+if "safaribooks" in sys.modules:
+    _existing = sys.modules["safaribooks"]
+    # If it resolved to the script (a plain module, not a package), replace it
+    if not hasattr(_existing, "__path__"):
+        del sys.modules["safaribooks"]
+
+if "safaribooks" not in sys.modules:
+    _pkg = importlib.import_module("safaribooks")
+    sys.modules["safaribooks"] = _pkg
+
+# Make Display, SafariBooks, and top-level constants importable from 'safaribooks'
+_pkg = sys.modules["safaribooks"]
+if not hasattr(_pkg, "Display") and "safaribooks_script" in sys.modules:
+    _script = sys.modules["safaribooks_script"]
+    _pkg.Display = _script.Display  # type: ignore[attr-defined]
+    _pkg.SafariBooks = _script.SafariBooks  # type: ignore[attr-defined]
+    # Re-export constants and functions used by tests
+    for _attr in ("get_logger", "main", "SAFARI_BASE_URL", "API_ORIGIN_URL"):
+        if hasattr(_script, _attr):
+            setattr(_pkg, _attr, getattr(_script, _attr))  # type: ignore[attr-defined]
+
+import json  # noqa: E402 - Must import after sys.path modification
+from typing import Any  # noqa: E402
+from unittest.mock import Mock  # noqa: E402
+
+import pytest  # noqa: E402
+import responses  # noqa: E402
 
 
 @pytest.fixture
@@ -184,6 +231,7 @@ def mock_args():
     args.log_level = "INFO"
     args.kindle = False
     args.no_cookies = False
+    args.output_dir = "Books"
     args.cred = None  # Login is disabled, so cred should be None
     return args
 

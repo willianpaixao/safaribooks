@@ -227,7 +227,7 @@ class TestParseToc:
             }
         ]
 
-        result, count, max_depth = SafariBooks.parse_toc(toc_data)
+        result, count, _max_depth = SafariBooks.parse_toc(toc_data)
 
         # Should escape HTML entities
         assert "&lt;" in result or "<" not in result

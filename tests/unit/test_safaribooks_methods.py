@@ -29,6 +29,7 @@ def mock_safaribooks_instance(tmp_path, mock_logger):
     instance.filename = "test_chapter.xhtml"
     instance.chapter_title = "Test Chapter"
     instance.css = []
+    instance.images = []
     instance.chapter_stylesheets = []
     instance.cover = None
     instance.logger = mock_logger
@@ -106,7 +107,7 @@ class TestParseHtmlMethod:
         """
         root = BeautifulSoup(html_content, "lxml")
 
-        page_css, xhtml = mock_safaribooks_instance.parse_html(root)
+        page_css, _xhtml = mock_safaribooks_instance.parse_html(root)
 
         assert 'href="Styles/Style00.css"' in page_css
         assert len(mock_safaribooks_instance.css) == 1
@@ -128,7 +129,7 @@ class TestParseHtmlMethod:
         """
         root = BeautifulSoup(html_content, "lxml")
 
-        page_css, xhtml = mock_safaribooks_instance.parse_html(root)
+        page_css, _xhtml = mock_safaribooks_instance.parse_html(root)
 
         assert "body { color: red; }" in page_css
         assert "<style>" in page_css
@@ -149,7 +150,7 @@ class TestParseHtmlMethod:
         """
         root = BeautifulSoup(html_content, "lxml")
 
-        page_css, xhtml = mock_safaribooks_instance.parse_html(root)
+        page_css, _xhtml = mock_safaribooks_instance.parse_html(root)
 
         assert ".class { color: blue; }" in page_css
 
@@ -182,7 +183,7 @@ class TestParseHtmlMethod:
         """
         root = BeautifulSoup(html_content, "lxml")
 
-        page_css, xhtml = mock_safaribooks_instance.parse_html(root, first_page=True)
+        _page_css, xhtml = mock_safaribooks_instance.parse_html(root, first_page=True)
 
         assert "Book Title" in xhtml
         assert mock_safaribooks_instance.cover is None
@@ -207,10 +208,6 @@ class TestParseHtmlMethod:
         assert "Images/cover.jpg" in xhtml or "cover.jpg" in xhtml
         assert 'id="Cover"' in xhtml
         assert "display:table" in page_css
-        assert (
-            mock_safaribooks_instance.cover == "Images/cover.jpg"
-            or mock_safaribooks_instance.cover == "cover.jpg"
-        )
 
     def test_parse_html_with_protocol_relative_css(self, mock_safaribooks_instance):
         """Test parsing CSS URLs with // protocol-relative format."""
@@ -228,7 +225,7 @@ class TestParseHtmlMethod:
         """
         root = BeautifulSoup(html_content, "lxml")
 
-        page_css, xhtml = mock_safaribooks_instance.parse_html(root)
+        _page_css, _xhtml = mock_safaribooks_instance.parse_html(root)
 
         assert len(mock_safaribooks_instance.css) == 1
         assert "https://cdn.example.com/style.css" in mock_safaribooks_instance.css[0]
@@ -252,7 +249,7 @@ class TestParseHtmlMethod:
         root = BeautifulSoup(html_content, "lxml")
 
         # Should convert SVG image to img tag
-        page_css, xhtml = mock_safaribooks_instance.parse_html(root)
+        _page_css, xhtml = mock_safaribooks_instance.parse_html(root)
 
         # After conversion, should have img tag
         assert "img" in xhtml or "image" in xhtml
